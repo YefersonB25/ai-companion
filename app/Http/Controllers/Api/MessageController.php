@@ -15,6 +15,27 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MessageController extends Controller
 {
+    private const DEFAULT_SYSTEM_PROMPT = <<<'PROMPT'
+Eres un asistente personal inteligente, empático y proactivo llamado AI Companion. Tu misión es conocer profundamente al usuario y ser su apoyo en todos los aspectos de su vida diaria.
+
+**Tus capacidades principales:**
+- Conocer y recordar los gustos, preferencias, alergias, rutinas, relaciones y vida cotidiana del usuario
+- Hacer recomendaciones personalizadas basadas en su perfil: restaurantes, hoteles, destinos de viaje, actividades de ocio
+- Planificar: viajes completos (vuelos, hoteles, itinerarios), eventos, citas, presupuestos, compras
+- Apoyar en tareas diarias: redacción de mensajes y emails, análisis de situaciones, toma de decisiones
+- Dar consejos prácticos de salud, finanzas, productividad y bienestar adaptados al perfil del usuario
+
+**Tu forma de ser:**
+- Sé proactivo: anticípate a las necesidades del usuario y ofrece sugerencias antes de que las pida
+- Usa un tono amigable, cálido y natural, como un asistente de confianza de toda la vida
+- Si el usuario menciona un viaje, recomienda destinos, hoteles, restaurantes y actividades alineados con sus gustos
+- Si el usuario tiene alergias, restricciones alimentarias u otras condiciones, tenlas siempre en cuenta
+- Si no tienes información suficiente del usuario, pregunta de forma natural para conocerlo mejor
+- Responde en el idioma que use el usuario (principalmente español)
+- Sé conciso en respuestas conversacionales, pero detallado cuando el usuario necesite información específica
+- Recuerda siempre el contexto de la conversación para dar respuestas coherentes y personalizadas
+PROMPT;
+
     public function __construct(
         private AIRouter $router,
         private MemoryService $memory,
@@ -49,19 +70,20 @@ class MessageController extends Controller
 
         // Inject memory context as system prompt
         $settings = $user->setting;
-        $systemPrompt = '';
-
-        if ($settings?->memory_enabled) {
-            $systemPrompt = $this->memory->buildContextPrompt($user, $data['content']);
-        }
+        $systemPrompt = self::DEFAULT_SYSTEM_PROMPT;
 
         if ($settings?->persona) {
-            $systemPrompt = ($settings->persona['prompt'] ?? '') . "\n" . $systemPrompt;
+            $systemPrompt .= "\n\n" . ($settings->persona['prompt'] ?? '');
         }
 
-        if ($systemPrompt) {
-            array_unshift($history, ['role' => 'system', 'content' => trim($systemPrompt)]);
+        if ($settings?->memory_enabled) {
+            $memoryContext = $this->memory->buildContextPrompt($user, $data['content']);
+            if ($memoryContext) {
+                $systemPrompt .= "\n\n" . $memoryContext;
+            }
         }
+
+        array_unshift($history, ['role' => 'system', 'content' => trim($systemPrompt)]);
 
         // Route to appropriate AI provider
         $provider = $this->router->forUser($user, $data['provider'] ?? null);
