@@ -9,6 +9,7 @@ return [
         'http://localhost:8081',
         'http://localhost:8082',
         'http://ai-companion-web.test',
+        'http://134.122.21.84:3000',
     ],
     'allowed_origins_patterns' => [],
     'allowed_headers' => ['*'],
