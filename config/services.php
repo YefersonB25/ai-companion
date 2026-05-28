@@ -35,8 +35,8 @@ return [
         ],
     ],
 
-    'brave_search' => [
-        'key' => env('BRAVE_SEARCH_API_KEY'),
+    'serper' => [
+        'key' => env('SERPER_API_KEY'),
     ],
 
 ];

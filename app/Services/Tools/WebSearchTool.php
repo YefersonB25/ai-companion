@@ -9,7 +9,7 @@ class WebSearchTool
 {
     public function execute(string $query): string
     {
-        $apiKey = config('services.brave_search.key');
+        $apiKey = config('services.serper.key');
 
         if (! $apiKey) {
             return "Búsqueda web no disponible (sin API key configurada).";
@@ -17,22 +17,21 @@ class WebSearchTool
 
         try {
             $response = Http::withHeaders([
-                'Accept'                  => 'application/json',
-                'Accept-Encoding'         => 'gzip',
-                'X-Subscription-Token'    => $apiKey,
-            ])->timeout(8)->get('https://api.search.brave.com/res/v1/web/search', [
-                'q'              => $query,
-                'count'          => 5,
-                'search_lang'    => 'es',
-                'text_decorations' => false,
+                'X-API-KEY'    => $apiKey,
+                'Content-Type' => 'application/json',
+            ])->timeout(8)->post('https://google.serper.dev/search', [
+                'q'   => $query,
+                'num' => 5,
+                'hl'  => 'es',
+                'gl'  => 'co',
             ]);
 
             if ($response->failed()) {
-                Log::warning("WebSearchTool: Brave API error {$response->status()} para '{$query}'");
+                Log::warning("WebSearchTool: Serper API error {$response->status()} para '{$query}'");
                 return "No se pudo completar la búsqueda.";
             }
 
-            $results = $response->json('web.results', []);
+            $results = $response->json('organic', []);
 
             if (empty($results)) {
                 return "No se encontraron resultados para: {$query}";
@@ -41,12 +40,12 @@ class WebSearchTool
             $lines = ["Resultados de búsqueda para: \"{$query}\"", ''];
 
             foreach (array_slice($results, 0, 5) as $i => $r) {
-                $title       = $r['title']       ?? '';
-                $description = $r['description'] ?? '';
-                $url         = $r['url']         ?? '';
+                $title   = $r['title']   ?? '';
+                $snippet = $r['snippet'] ?? '';
+                $link    = $r['link']    ?? '';
                 $lines[] = ($i + 1) . ". **{$title}**";
-                if ($description) $lines[] = "   {$description}";
-                if ($url)         $lines[] = "   Fuente: {$url}";
+                if ($snippet) $lines[] = "   {$snippet}";
+                if ($link)    $lines[] = "   Fuente: {$link}";
                 $lines[] = '';
             }
 
