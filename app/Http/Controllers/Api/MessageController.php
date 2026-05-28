@@ -8,6 +8,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Services\AI\AIRouter;
 use App\Services\Memory\MemoryService;
+use App\Services\ProfileService;
 use App\Services\PushNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -39,6 +40,7 @@ PROMPT;
     public function __construct(
         private AIRouter $router,
         private MemoryService $memory,
+        private ProfileService $profile,
         private PushNotificationService $push,
     ) {}
 
@@ -68,9 +70,15 @@ PROMPT;
             ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
             ->toArray();
 
-        // Inject memory context as system prompt
+        // Build system prompt with profile + persona + memory
         $settings = $user->setting;
         $systemPrompt = self::DEFAULT_SYSTEM_PROMPT;
+
+        // Perfil estructurado del usuario (siempre presente)
+        $profileContext = $this->profile->buildContextBlock($user);
+        if ($profileContext) {
+            $systemPrompt .= "\n\n" . $profileContext;
+        }
 
         if ($settings?->persona) {
             $systemPrompt .= "\n\n" . ($settings->persona['prompt'] ?? '');

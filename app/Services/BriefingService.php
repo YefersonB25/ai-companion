@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Services\AI\AIRouter;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use App\Services\ProfileService;
 
 class BriefingService
 {
@@ -13,6 +14,7 @@ class BriefingService
         private readonly AIRouter              $router,
         private readonly WeatherService        $weather,
         private readonly PushNotificationService $push,
+        private readonly ProfileService        $profileService,
     ) {}
 
     public function sendForUser(User $user): void
@@ -71,15 +73,21 @@ class BriefingService
             ->implode("\n");
 
         $memoryBlock = $memories
-            ? "Lo que sé sobre el usuario:\n{$memories}"
-            : "Aún no tengo mucha información sobre el usuario.";
+            ? "Recuerdos del usuario:\n{$memories}"
+            : '';
 
-        $personaName = $settings?->persona['name'] ?? 'JARVIS';
+        $profileBlock = $this->profileService->buildContextBlock($user);
+        $personaName  = $settings?->persona['name'] ?? 'JARVIS';
+
+        $contextParts = array_filter([$profileBlock, $memoryBlock]);
+        $contextBlock = $contextParts
+            ? implode("\n\n", $contextParts)
+            : "Aún no tengo mucha información sobre el usuario.";
 
         $systemPrompt = <<<PROMPT
 Eres {$personaName}, el asistente personal inteligente del usuario. Generas briefings matutinos personalizados, naturales y proactivos — como lo haría JARVIS con Tony Stark.
 
-{$memoryBlock}
+{$contextBlock}
 PROMPT;
 
         $userMessage = <<<MSG

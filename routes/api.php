@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\MemoryController;
 use App\Http\Controllers\Api\MessageController;
+use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Telegram\WebhookController;
 use Illuminate\Support\Facades\Broadcast;
@@ -48,6 +49,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/settings',  [SettingController::class, 'show']);
     Route::put('/settings',  [SettingController::class, 'update']);
     Route::patch('/settings', [SettingController::class, 'update']);
+
+    // Profile
+    Route::get('/profile',  [ProfileController::class, 'show']);
+    Route::put('/profile',  [ProfileController::class, 'update']);
+    Route::patch('/profile', [ProfileController::class, 'update']);
 
     // Push notifications — device token registration
     Route::post('/device-tokens',   [DeviceTokenController::class, 'store']);

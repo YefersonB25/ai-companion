@@ -47,6 +47,11 @@ class User extends Authenticatable
         return $this->hasOne(UserSetting::class);
     }
 
+    public function profile(): HasOne
+    {
+        return $this->hasOne(UserProfile::class);
+    }
+
     public function deviceTokens(): HasMany
     {
         return $this->hasMany(DeviceToken::class);
