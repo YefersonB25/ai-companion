@@ -92,6 +92,69 @@ class ClaudeProvider extends BaseProvider
         }
     }
 
+    public function supportsTools(): bool
+    {
+        return true;
+    }
+
+    public function chatWithTools(array $messages, array $tools, array $options = []): array
+    {
+        $start = microtime(true);
+        [$system, $chatMessages] = $this->prepareMessages($messages);
+
+        $payload = array_merge([
+            'model'      => $options['model'] ?? $this->model,
+            'max_tokens' => $options['max_tokens'] ?? 8096,
+            'messages'   => $chatMessages,
+            'tools'      => $tools,
+        ], $system ? ['system' => $system] : []);
+
+        $response = Http::withHeaders([
+            'x-api-key'         => $this->apiKey,
+            'anthropic-version' => '2023-06-01',
+            'content-type'      => 'application/json',
+        ])->post("{$this->baseUrl}/messages", $payload);
+
+        if ($response->failed()) {
+            throw new RuntimeException("Claude API error: " . $response->body());
+        }
+
+        $data    = $response->json();
+        $latency = (int) ((microtime(true) - $start) * 1000);
+
+        if (($data['stop_reason'] ?? '') === 'tool_use') {
+            $toolCalls = [];
+            foreach ($data['content'] as $block) {
+                if ($block['type'] === 'tool_use') {
+                    $toolCalls[] = ['id' => $block['id'], 'name' => $block['name'], 'input' => $block['input']];
+                }
+            }
+            return [
+                'type'               => 'tool_use',
+                'tool_calls'         => $toolCalls,
+                'messages_to_append' => [['role' => 'assistant', 'content' => $data['content']]],
+            ];
+        }
+
+        $text = '';
+        foreach ($data['content'] as $block) {
+            if ($block['type'] === 'text') $text .= $block['text'];
+        }
+
+        return array_merge(
+            $this->buildResponse($text, $data['model'], $data['usage']['input_tokens'], $data['usage']['output_tokens'], $latency),
+            ['type' => 'text']
+        );
+    }
+
+    public function buildToolResultMessage(array $toolCall, string $result): array
+    {
+        return [
+            'role'    => 'user',
+            'content' => [['type' => 'tool_result', 'tool_use_id' => $toolCall['id'], 'content' => $result]],
+        ];
+    }
+
     private function prepareMessages(array $messages): array
     {
         $system = null;

@@ -56,6 +56,60 @@ class OpenAIProvider extends BaseProvider
         );
     }
 
+    public function supportsTools(): bool
+    {
+        return true;
+    }
+
+    public function chatWithTools(array $messages, array $tools, array $options = []): array
+    {
+        $start = microtime(true);
+
+        $response = Http::withToken($this->apiKey)
+            ->post("{$this->baseUrl}/chat/completions", [
+                'model'       => $options['model'] ?? $this->model,
+                'messages'    => $messages,
+                'tools'       => $tools,
+                'max_tokens'  => $options['max_tokens'] ?? 8096,
+                'temperature' => $options['temperature'] ?? 0.7,
+            ]);
+
+        if ($response->failed()) {
+            throw new RuntimeException("OpenAI API error: " . $response->body());
+        }
+
+        $data    = $response->json();
+        $latency = (int) ((microtime(true) - $start) * 1000);
+        $choice  = $data['choices'][0];
+
+        if (($choice['finish_reason'] ?? '') === 'tool_calls') {
+            $toolCalls = [];
+            foreach ($choice['message']['tool_calls'] ?? [] as $tc) {
+                $toolCalls[] = [
+                    'id'    => $tc['id'],
+                    'name'  => $tc['function']['name'],
+                    'input' => json_decode($tc['function']['arguments'], true) ?? [],
+                ];
+            }
+            return [
+                'type'               => 'tool_use',
+                'tool_calls'         => $toolCalls,
+                'messages_to_append' => [$choice['message']],
+            ];
+        }
+
+        return array_merge(
+            $this->buildResponse(
+                $choice['message']['content'],
+                $data['model'],
+                $data['usage']['prompt_tokens'],
+                $data['usage']['completion_tokens'],
+                $latency
+            ),
+            ['type' => 'text']
+        );
+    }
+
     public function stream(array $messages, array $options = []): Generator
     {
         $response = Http::withToken($this->apiKey)

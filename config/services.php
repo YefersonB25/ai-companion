@@ -35,4 +35,8 @@ return [
         ],
     ],
 
+    'brave_search' => [
+        'key' => env('BRAVE_SEARCH_API_KEY'),
+    ],
+
 ];

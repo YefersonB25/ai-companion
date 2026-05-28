@@ -5,11 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Events\MessageCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
-use App\Models\Message;
+use App\Models\User;
 use App\Services\AI\AIRouter;
 use App\Services\Memory\MemoryService;
 use App\Services\ProfileService;
 use App\Services\PushNotificationService;
+use App\Services\Tools\ToolRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -35,6 +36,11 @@ Eres un asistente personal inteligente, empático y proactivo llamado AI Compani
 - Responde en el idioma que use el usuario (principalmente español)
 - Sé conciso en respuestas conversacionales, pero detallado cuando el usuario necesite información específica
 - Recuerda siempre el contexto de la conversación para dar respuestas coherentes y personalizadas
+
+**Herramientas disponibles:**
+- Usa `web_search` para buscar información actualizada: noticias, precios de vuelos y hoteles, eventos, restaurantes, productos y cualquier dato que pueda haber cambiado
+- Usa `get_weather` para obtener el clima actual de cualquier ciudad cuando el usuario lo solicite o sea relevante para el contexto
+- Usa `get_datetime` para conocer la fecha y hora actuales cuando sea necesario
 PROMPT;
 
     public function __construct(
@@ -42,6 +48,7 @@ PROMPT;
         private MemoryService $memory,
         private ProfileService $profile,
         private PushNotificationService $push,
+        private ToolRegistry $tools,
     ) {}
 
     public function send(Request $request, Conversation $conversation): JsonResponse|StreamedResponse
@@ -94,14 +101,18 @@ PROMPT;
         array_unshift($history, ['role' => 'system', 'content' => trim($systemPrompt)]);
 
         // Route to appropriate AI provider
-        $provider = $this->router->forUser($user, $data['provider'] ?? null);
+        $provider  = $this->router->forUser($user, $data['provider'] ?? null);
+        $useTools  = $provider->supportsTools();
 
-        if ($data['stream'] ?? $settings?->stream_responses ?? true) {
+        // Streaming is disabled when tools are active (agent loop runs synchronously)
+        if (!$useTools && ($data['stream'] ?? $settings?->stream_responses ?? true)) {
             return $this->streamResponse($conversation, $user, $provider, $history, $data['content']);
         }
 
         $start    = now();
-        $response = $provider->chat($history);
+        $response = $useTools
+            ? $this->resolveTools($provider, $history, $user)
+            : $provider->chat($history);
 
         $aiMessage = $conversation->messages()->create([
             'user_id'       => $user->id,
@@ -134,6 +145,48 @@ PROMPT;
         }
 
         return response()->json($aiMessage);
+    }
+
+    private function resolveTools($provider, array $messages, ?User $user): array
+    {
+        $tools   = $provider->getName() === 'claude'
+            ? $this->tools->forClaude()
+            : $this->tools->forOpenAI();
+
+        $history = $messages;
+        $maxIter = 5;
+
+        for ($i = 0; $i < $maxIter; $i++) {
+            $response = $provider->chatWithTools($history, $tools);
+
+            if ($response['type'] === 'text') {
+                return $response;
+            }
+
+            // Append assistant message(s) containing the tool calls
+            foreach ($response['messages_to_append'] as $msg) {
+                $history[] = $msg;
+            }
+
+            // Execute tools and append results
+            if ($provider->getName() === 'claude') {
+                // Claude expects all tool results batched in one user message
+                $resultBlocks = [];
+                foreach ($response['tool_calls'] as $call) {
+                    $result = $this->tools->execute($call['name'], $call['input'], $user);
+                    $resultBlocks[] = ['type' => 'tool_result', 'tool_use_id' => $call['id'], 'content' => $result];
+                }
+                $history[] = ['role' => 'user', 'content' => $resultBlocks];
+            } else {
+                foreach ($response['tool_calls'] as $call) {
+                    $result    = $this->tools->execute($call['name'], $call['input'], $user);
+                    $history[] = $provider->buildToolResultMessage($call, $result);
+                }
+            }
+        }
+
+        // Max iterations reached — get final answer without tools
+        return array_merge($provider->chat($history), ['type' => 'text']);
     }
 
     private function streamResponse(Conversation $conversation, $user, $provider, array $history, string $userContent): StreamedResponse
