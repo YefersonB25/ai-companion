@@ -39,4 +39,8 @@ return [
         'key' => env('SERPER_API_KEY'),
     ],
 
+    'tavily' => [
+        'key' => env('TAVILY_API_KEY'),
+    ],
+
 ];
