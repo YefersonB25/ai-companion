@@ -5,7 +5,9 @@ namespace App\Services\Memory;
 use App\Events\MemoryNodeSaved;
 use App\Models\MemoryNode;
 use App\Models\User;
+use App\Services\AI\AIRouter;
 use App\Services\AI\EmbeddingService;
+use App\Services\AI\Providers\ClaudeProvider;
 use App\Services\Qdrant\QdrantService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -13,8 +15,9 @@ use Illuminate\Support\Facades\Log;
 class MemoryService
 {
     public function __construct(
-        private QdrantService  $qdrant,
+        private QdrantService    $qdrant,
         private EmbeddingService $embedding,
+        private AIRouter         $router,
     ) {}
 
     public function store(
@@ -91,6 +94,82 @@ class MemoryService
         return "Contexto relevante del usuario:\n{$context}\n";
     }
 
+    public function extractWithAI(User $user, string $text, ?int $conversationId = null): void
+    {
+        try {
+            $provider = $this->resolveExtractionProvider($user);
+
+            if ($provider === null) {
+                Log::debug('Memory AI extraction skipped: no active provider for user', ['user_id' => $user->id]);
+                return;
+            }
+
+            $extractionPrompt = <<<'PROMPT'
+Extract all facts, preferences, habits, relationships, goals and important information about the user from this text. Return ONLY a JSON array of objects, each with: {"type": "person|preference|habit|event|project|skill|health|note", "label": "short unique key", "content": "detailed description", "importance": 0.1-1.0}. Only include items worth remembering long-term. Return [] if nothing is worth storing.
+PROMPT;
+
+            $messages = [
+                ['role' => 'system', 'content' => $extractionPrompt],
+                ['role' => 'user', 'content' => $text],
+            ];
+
+            $response = $provider->chat($messages, ['max_tokens' => 1024]);
+            $rawContent = trim($response['content'] ?? '');
+
+            // Strip optional markdown code fences (```json ... ```)
+            $rawContent = preg_replace('/^```(?:json)?\s*/i', '', $rawContent);
+            $rawContent = preg_replace('/\s*```$/', '', $rawContent);
+
+            $items = json_decode(trim($rawContent), true);
+
+            if (! is_array($items)) {
+                Log::debug('Memory AI extraction: response was not valid JSON', [
+                    'user_id'  => $user->id,
+                    'response' => mb_substr($rawContent, 0, 200),
+                ]);
+                return;
+            }
+
+            $stored = 0;
+            foreach ($items as $item) {
+                $importance = (float) ($item['importance'] ?? 0);
+
+                if ($importance < 0.3) {
+                    continue;
+                }
+
+                $type    = $item['type']    ?? 'note';
+                $label   = $item['label']   ?? '';
+                $content = $item['content'] ?? '';
+
+                if ($label === '' || $content === '') {
+                    continue;
+                }
+
+                $validTypes = ['person', 'preference', 'habit', 'event', 'project', 'skill', 'health', 'note'];
+                if (! in_array($type, $validTypes, true)) {
+                    $type = 'note';
+                }
+
+                $this->store($user, $type, $label, $content, [], null, $importance);
+                $stored++;
+            }
+
+            Log::debug('Memory AI extraction completed', [
+                'user_id'         => $user->id,
+                'conversation_id' => $conversationId,
+                'extracted'       => count($items),
+                'stored'          => $stored,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('Memory AI extraction failed', [
+                'user_id'         => $user->id,
+                'conversation_id' => $conversationId,
+                'error'           => $e->getMessage(),
+            ]);
+        }
+    }
+
     public function extractAndStore(User $user, string $assistantResponse): void
     {
         $patterns = [
@@ -121,6 +200,33 @@ class MemoryService
         });
 
         return $count;
+    }
+
+    /**
+     * Resolve the cheapest available provider for memory extraction.
+     * Prefers a Claude Haiku instance; falls back to the user's default provider.
+     */
+    private function resolveExtractionProvider(User $user): ?\App\Services\AI\Providers\BaseProvider
+    {
+        // Prefer a Claude provider so we can force the haiku model
+        $claudeRecord = $user->aiProviders()
+            ->where('is_active', true)
+            ->where('provider', 'claude')
+            ->first();
+
+        if ($claudeRecord) {
+            return new ClaudeProvider(
+                $claudeRecord->getDecryptedApiKey(),
+                'claude-haiku-4-5-20251001'
+            );
+        }
+
+        // Fall back to whichever provider the router would pick
+        try {
+            return $this->router->forUser($user);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function indexInQdrant(MemoryNode $node): void

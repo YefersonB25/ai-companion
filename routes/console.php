@@ -10,3 +10,6 @@ Artisan::command('inspire', function () {
 
 // Ejecutar cada minuto para verificar qué usuarios tienen su hora de briefing
 Schedule::command('briefing:send')->everyMinute()->withoutOverlapping();
+
+// Enviar notificaciones proactivas de IA a las 9:00 AM diariamente
+Schedule::command('aria:proactive')->dailyAt('09:00');

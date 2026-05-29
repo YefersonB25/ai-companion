@@ -10,7 +10,7 @@ class Message extends Model
     protected $fillable = [
         'conversation_id', 'user_id', 'role', 'content',
         'provider', 'model', 'input_tokens', 'output_tokens',
-        'latency_ms', 'metadata',
+        'latency_ms', 'metadata', 'image_url',
     ];
 
     protected $casts = [

@@ -52,4 +52,38 @@ class ConversationController extends Controller
 
         return response()->json(['message' => 'Conversación eliminada.']);
     }
+
+    public function export(Request $request, Conversation $conversation): JsonResponse
+    {
+        $this->authorize('view', $conversation);
+
+        $conversation->load('messages');
+
+        $messages = $conversation->messages->map(fn ($message) => [
+            'role'       => $message->role,
+            'content'    => $message->content,
+            'image_url'  => $message->image_url ?? null,
+            'created_at' => $message->created_at,
+        ]);
+
+        return response()->json([
+            'id'             => $conversation->id,
+            'title'          => $conversation->title,
+            'created_at'     => $conversation->created_at,
+            'messages'       => $messages,
+            'exported_at'    => now()->toISOString(),
+            'total_messages' => $messages->count(),
+        ]);
+    }
+
+    public function messages(Request $request, Conversation $conversation): JsonResponse
+    {
+        $this->authorize('view', $conversation);
+
+        $messages = $conversation->messages()
+            ->orderBy('created_at')
+            ->paginate(50);
+
+        return response()->json($messages);
+    }
 }

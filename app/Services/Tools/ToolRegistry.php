@@ -45,6 +45,7 @@ class ToolRegistry
                 'type'       => 'object',
                 'properties' => [],
                 'required'   => [],
+                '_empty_properties' => true, // marker, normalized by forClaude/forOpenAI below
             ],
         ],
     ];
@@ -54,13 +55,23 @@ class ToolRegistry
         private readonly WeatherService $weather,
     ) {}
 
+    /** Normalize parameters: empty `properties` arrays become stdClass so they JSON-encode as {} not [] */
+    private function normalizeParameters(array $params): array
+    {
+        if (($params['_empty_properties'] ?? false) === true) {
+            unset($params['_empty_properties']);
+            $params['properties'] = new \stdClass();
+        }
+        return $params;
+    }
+
     /** Returns schemas formatted for Claude (input_schema key) */
     public function forClaude(): array
     {
         return array_map(fn($t) => [
             'name'         => $t['name'],
             'description'  => $t['description'],
-            'input_schema' => $t['parameters'],
+            'input_schema' => $this->normalizeParameters($t['parameters']),
         ], $this->schemas);
     }
 
@@ -72,7 +83,7 @@ class ToolRegistry
             'function' => [
                 'name'        => $t['name'],
                 'description' => $t['description'],
-                'parameters'  => $t['parameters'],
+                'parameters'  => $this->normalizeParameters($t['parameters']),
             ],
         ], $this->schemas);
     }

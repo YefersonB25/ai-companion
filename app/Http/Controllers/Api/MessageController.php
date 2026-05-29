@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Events\MessageCreated;
 use App\Http\Controllers\Controller;
+use App\Jobs\ExtractMemoryJob;
+use App\Jobs\GenerateConversationTitle;
 use App\Models\Conversation;
 use App\Models\User;
 use App\Services\AI\AIRouter;
@@ -18,29 +20,53 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class MessageController extends Controller
 {
     private const DEFAULT_SYSTEM_PROMPT = <<<'PROMPT'
-Eres un asistente personal inteligente, empático y proactivo llamado AI Companion. Tu misión es conocer profundamente al usuario y ser su apoyo en todos los aspectos de su vida diaria.
+Eres un asistente personal con memoria que apoya al usuario en todos los aspectos de su vida — personal, profesional, salud, finanzas, viajes, decisiones cotidianas.
 
-**Tus capacidades principales:**
-- Conocer y recordar los gustos, preferencias, alergias, rutinas, relaciones y vida cotidiana del usuario
-- Hacer recomendaciones personalizadas basadas en su perfil: restaurantes, hoteles, destinos de viaje, actividades de ocio
-- Planificar: viajes completos (vuelos, hoteles, itinerarios), eventos, citas, presupuestos, compras
-- Apoyar en tareas diarias: redacción de mensajes y emails, análisis de situaciones, toma de decisiones
-- Dar consejos prácticos de salud, finanzas, productividad y bienestar adaptados al perfil del usuario
+PRINCIPIOS:
+- Sé proactivo: anticipa necesidades, sugiere mejoras, ofrece la siguiente acción útil
+- Sé honesto: si no sabes algo, dilo; si una idea tiene riesgos, advierte antes de ejecutarla
+- Sé conciso por defecto, detallado cuando el tema lo amerite
+- Habla en el idioma del usuario (default español), tono natural y cálido como un amigo competente
+- Recuerda y usa el contexto: nombres, fechas, preferencias, conversaciones previas
 
-**Tu forma de ser:**
-- Sé proactivo: anticípate a las necesidades del usuario y ofrece sugerencias antes de que las pida
-- Usa un tono amigable, cálido y natural, como un asistente de confianza de toda la vida
-- Si el usuario menciona un viaje, recomienda destinos, hoteles, restaurantes y actividades alineados con sus gustos
-- Si el usuario tiene alergias, restricciones alimentarias u otras condiciones, tenlas siempre en cuenta
-- Si no tienes información suficiente del usuario, pregunta de forma natural para conocerlo mejor
-- Responde en el idioma que use el usuario (principalmente español)
-- Sé conciso en respuestas conversacionales, pero detallado cuando el usuario necesite información específica
-- Recuerda siempre el contexto de la conversación para dar respuestas coherentes y personalizadas
+CAPACIDADES:
+- Planifica: viajes (vuelos, hoteles, itinerarios), eventos, presupuestos, compras, agenda
+- Redacta: emails, mensajes, propuestas, ideas, resúmenes
+- Decide: analiza pros/contras, costos, riesgos, alternativas
+- Investiga: con `web_search` para info actualizada (noticias, precios, productos, eventos)
+- Adapta recomendaciones al perfil del usuario (alergias, gustos, presupuesto, restricciones)
 
-**Herramientas disponibles:**
-- Usa `web_search` para buscar información actualizada: noticias, precios de vuelos y hoteles, eventos, restaurantes, productos y cualquier dato que pueda haber cambiado
-- Usa `get_weather` para obtener el clima actual de cualquier ciudad cuando el usuario lo solicite o sea relevante para el contexto
-- Usa `get_datetime` para conocer la fecha y hora actuales cuando sea necesario
+HERRAMIENTAS DE INFORMACIÓN:
+- `web_search` para cualquier dato que pueda haber cambiado (precios, noticias, lanzamientos)
+- `get_weather` para clima de cualquier ciudad
+- `get_datetime` para fecha/hora actual antes de planificar algo con tiempo
+
+ACCIONES DEL TELÉFONO (solo si el usuario está en el cliente móvil):
+Si el usuario pide explícitamente enviar un mensaje, llamar a alguien, reproducir música o abrir una app, incluye un bloque [ACTION]...[/ACTION] con JSON al FINAL de tu respuesta. El cliente móvil lo ejecuta automáticamente.
+
+Formato JSON soportado:
+- Mandar SMS: `{"type":"send_sms","contact":"<nombre>","message":"<texto>"}`
+- Llamar: `{"type":"make_call","contact":"<nombre>"}`
+- Música: `{"type":"play_music","query":"<artista o canción>"}` (o agregar `"app":"spotify"|"youtubemusic"|"youtube"` si el usuario lo especificó)
+- Abrir app: `{"type":"open_app","name":"whatsapp"|"telegram"|"spotify"|"youtube"|"gmail"|"maps"|"chrome"|"instagram"|"facebook"|"twitter"}`
+- Recordatorio: `{"type":"set_reminder","when":"<ISO 8601 con timezone del usuario>","message":"<texto del recordatorio>"}`. Convierte expresiones naturales como "mañana a las 3pm", "en una hora", "el viernes" a una fecha ISO absoluta (usa `get_datetime` primero si necesitas la fecha actual).
+
+Reglas para acciones:
+- Antes del bloque, escribe una confirmación natural en español (ej. "Listo, llamando a María." o "Te abro Spotify con Bad Bunny.")
+- NO uses bloques [ACTION] si el usuario solo está conversando — solo cuando pide hacer algo concreto
+- Si el usuario no especifica reproductor de música, omite el campo `app` y deja que el cliente le pregunte
+- Si la petición es ambigua ("escríbele algo"), pregunta primero qué decir antes de emitir la acción
+
+Ejemplo:
+Usuario: "envíale un mensaje a María diciéndole que voy en camino"
+Respuesta: "Listo, le envío el mensaje a María.
+[ACTION]{"type":"send_sms","contact":"María","message":"Voy en camino"}[/ACTION]"
+
+REGLAS:
+- Si el usuario menciona algo personal nuevo (alergia, preferencia, evento), guárdalo mentalmente para futuras conversaciones
+- No inventes precios, fechas o disponibilidad — siempre verifica con `web_search`
+- No des consejos médicos, legales o financieros vinculantes; recomienda profesional cuando aplique
+- Si pides datos que aún no tienes (presupuesto, fecha, destino), pregunta de forma natural en vez de asumir
 PROMPT;
 
     public function __construct(
@@ -59,26 +85,51 @@ PROMPT;
             'content'  => 'required|string',
             'provider' => 'nullable|string',
             'stream'   => 'nullable|boolean',
+            'image'    => 'nullable|image|max:5120',
         ]);
 
         $user = $request->user();
 
+        // Handle optional image upload
+        $imageUrl = null;
+        if ($request->hasFile('image')) {
+            $path     = $request->file('image')->store('messages', 'public');
+            $imageUrl = asset('storage/' . $path);
+        }
+
         // Save user message
         $userMessage = $conversation->messages()->create([
-            'user_id' => $user->id,
-            'role'    => 'user',
-            'content' => $data['content'],
+            'user_id'   => $user->id,
+            'role'      => 'user',
+            'content'   => $data['content'],
+            'image_url' => $imageUrl,
         ]);
 
-        // Build message history for the AI
+        // Asynchronously extract memories from the user's message
+        $settings = $user->setting;
+        if ($settings?->memory_enabled) {
+            ExtractMemoryJob::dispatch($user->id, $data['content'], $conversation->id);
+        }
+
+        // Build message history for the AI (with vision support for messages with images)
         $history = $conversation->messages()
             ->orderBy('created_at')
             ->get()
-            ->map(fn($m) => ['role' => $m->role, 'content' => $m->content])
+            ->map(function ($m) {
+                if ($m->image_url) {
+                    return [
+                        'role'    => $m->role,
+                        'content' => [
+                            ['type' => 'image', 'source' => ['type' => 'url', 'url' => $m->image_url]],
+                            ['type' => 'text',  'text'   => $m->content],
+                        ],
+                    ];
+                }
+                return ['role' => $m->role, 'content' => $m->content];
+            })
             ->toArray();
 
         // Build system prompt with profile + persona + memory
-        $settings = $user->setting;
         $systemPrompt = self::DEFAULT_SYSTEM_PROMPT;
 
         // Perfil estructurado del usuario (siempre presente)
@@ -88,7 +139,14 @@ PROMPT;
         }
 
         if ($settings?->persona) {
-            $systemPrompt .= "\n\n" . ($settings->persona['prompt'] ?? '');
+            $personaName = $settings->persona['name'] ?? null;
+            if ($personaName) {
+                $systemPrompt .= "\n\nTu nombre es {$personaName}. Si el usuario te pregunta cómo te llamas o se refiere a ti, identifícate como {$personaName}.";
+            }
+            $personaPrompt = $settings->persona['prompt'] ?? '';
+            if ($personaPrompt) {
+                $systemPrompt .= "\n\n" . $personaPrompt;
+            }
         }
 
         if ($settings?->memory_enabled) {
@@ -100,19 +158,37 @@ PROMPT;
 
         array_unshift($history, ['role' => 'system', 'content' => trim($systemPrompt)]);
 
-        // Route to appropriate AI provider
-        $provider  = $this->router->forUser($user, $data['provider'] ?? null);
+        // Route to appropriate AI provider - return friendly errors for setup issues
+        try {
+            $provider = $this->router->forUser($user, $data['provider'] ?? null);
+        } catch (\RuntimeException $e) {
+            return response()->json([
+                'error'  => 'no_provider',
+                'message' => 'No tienes ningún proveedor de IA configurado. Ve a "Proveedores IA" para agregar uno (Gemini es gratis).',
+                'setup_url' => '/providers',
+            ], 400);
+        }
+
         $useTools  = $provider->supportsTools();
 
         // Streaming is disabled when tools are active (agent loop runs synchronously)
         if (!$useTools && ($data['stream'] ?? $settings?->stream_responses ?? true)) {
-            return $this->streamResponse($conversation, $user, $provider, $history, $data['content']);
+            return $this->streamResponse($conversation, $user, $provider, $history, $data['content'], $settings);
         }
 
-        $start    = now();
-        $response = $useTools
-            ? $this->resolveTools($provider, $history, $user)
-            : $provider->chat($history);
+        try {
+            $start    = now();
+            $response = $useTools
+                ? $this->resolveTools($provider, $history, $user)
+                : $provider->chat($history);
+        } catch (\Throwable $e) {
+            $msg = $this->humanizeProviderError($e->getMessage());
+            return response()->json([
+                'error'   => 'provider_error',
+                'message' => $msg,
+                'detail'  => config('app.debug') ? $e->getMessage() : null,
+            ], 502);
+        }
 
         $aiMessage = $conversation->messages()->create([
             'user_id'       => $user->id,
@@ -135,9 +211,9 @@ PROMPT;
             'token_count' => $conversation->token_count + $response['input_tokens'] + $response['output_tokens'],
         ]);
 
-        // Auto-generate title on first exchange
-        if ($settings?->auto_title && !$conversation->title && $conversation->messages()->count() === 2) {
-            $conversation->update(['title' => $this->generateTitle($data['content'])]);
+        // Auto-generate title after first AI response (dispatched to queue)
+        if (!$conversation->title && $conversation->messages()->count() <= 4) {
+            GenerateConversationTitle::dispatch($conversation->id, $user->id, $data['content']);
         }
 
         if ($settings?->memory_enabled) {
@@ -145,6 +221,35 @@ PROMPT;
         }
 
         return response()->json($aiMessage);
+    }
+
+    /**
+     * Translate cryptic provider API errors into actionable Spanish messages.
+     */
+    private function humanizeProviderError(string $error): string
+    {
+        $lower = strtolower($error);
+
+        if (str_contains($lower, 'api key') && (str_contains($lower, 'leaked') || str_contains($lower, 'reported'))) {
+            return 'Tu API key fue reportada como filtrada y revocada por el proveedor. Genera una nueva en su portal y actualízala en "Proveedores IA".';
+        }
+        if (str_contains($lower, 'invalid api key') || str_contains($lower, 'api_key') || str_contains($lower, 'permission_denied') || str_contains($lower, 'unauthorized') || str_contains($lower, '401') || str_contains($lower, '403')) {
+            return 'Tu API key no es válida o no tiene permisos. Revisa que la pegaste correctamente y que el proyecto en el portal del proveedor esté activo.';
+        }
+        if (str_contains($lower, 'quota') || str_contains($lower, 'rate limit') || str_contains($lower, '429')) {
+            return 'Excediste el límite gratuito o de tasa de tu proveedor. Espera unos minutos o sube de plan.';
+        }
+        if (str_contains($lower, 'model') && str_contains($lower, 'not found')) {
+            return 'El modelo configurado ya no existe o no está disponible para tu cuenta. Cambia el modelo en "Proveedores IA".';
+        }
+        if (str_contains($lower, 'timeout') || str_contains($lower, 'timed out')) {
+            return 'El proveedor tardó demasiado en responder. Inténtalo de nuevo.';
+        }
+        if (str_contains($lower, 'safety') || str_contains($lower, 'blocked')) {
+            return 'El proveedor bloqueó la respuesta por filtros de contenido. Reformula la pregunta.';
+        }
+
+        return 'El proveedor de IA devolvió un error inesperado. Verifica tu API key y modelo en "Proveedores IA", o cambia de proveedor.';
     }
 
     private function resolveTools($provider, array $messages, ?User $user): array
@@ -189,9 +294,9 @@ PROMPT;
         return array_merge($provider->chat($history), ['type' => 'text']);
     }
 
-    private function streamResponse(Conversation $conversation, $user, $provider, array $history, string $userContent): StreamedResponse
+    private function streamResponse(Conversation $conversation, $user, $provider, array $history, string $userContent, $settings = null): StreamedResponse
     {
-        return response()->stream(function () use ($conversation, $user, $provider, $history, $userContent) {
+        return response()->stream(function () use ($conversation, $user, $provider, $history, $userContent, $settings) {
             $fullContent = '';
             $start = microtime(true);
 
@@ -214,6 +319,11 @@ PROMPT;
             broadcast(new MessageCreated($aiMessage))->toOthers();
             $this->push->notifyMessage($user, $fullContent, $conversation->id, $provider->getName());
 
+            // Auto-generate title after first AI response (dispatched to queue)
+            if (!$conversation->title && $conversation->messages()->count() <= 4) {
+                GenerateConversationTitle::dispatch($conversation->id, $user->id, $userContent);
+            }
+
             echo "data: [DONE]\n\n";
         }, 200, [
             'Content-Type'      => 'text/event-stream',
@@ -222,8 +332,4 @@ PROMPT;
         ]);
     }
 
-    private function generateTitle(string $content): string
-    {
-        return mb_substr($content, 0, 50) . (mb_strlen($content) > 50 ? '...' : '');
-    }
 }

@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AiProviderController;
 use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BriefingController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\MemoryController;
@@ -36,6 +37,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Conversations
     Route::apiResource('conversations', ConversationController::class);
     Route::post('conversations/{conversation}/messages', [MessageController::class, 'send']);
+    Route::get('conversations/{conversation}/messages',  [ConversationController::class, 'messages']);
+    Route::get('conversations/{conversation}/export',    [ConversationController::class, 'export']);
 
     // AI Providers
     Route::apiResource('providers', AiProviderController::class);
@@ -49,6 +52,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/settings',  [SettingController::class, 'show']);
     Route::put('/settings',  [SettingController::class, 'update']);
     Route::patch('/settings', [SettingController::class, 'update']);
+
+    // Briefing on-demand (mobile fetches this for local notification)
+    Route::get('/briefing/today', [BriefingController::class, 'today']);
 
     // Profile
     Route::get('/profile',  [ProfileController::class, 'show']);
