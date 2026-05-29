@@ -11,6 +11,7 @@
     "require": {
         "php": "^8.3",
         "irazasyed/telegram-bot-sdk": "^3.16",
+        "kreait/firebase-php": "^8.2",
         "laravel/framework": "^13.8",
         "laravel/reverb": "^1.10",
         "laravel/sanctum": "^4.0",
