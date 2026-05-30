@@ -80,10 +80,19 @@ class ConversationController extends Controller
     {
         $this->authorize('view', $conversation);
 
-        $messages = $conversation->messages()
-            ->orderBy('created_at')
-            ->paginate(50);
+        $perPage = min((int) $request->query('per_page', 50), 100);
 
-        return response()->json($messages);
+        $messages = $conversation->messages()
+            ->orderBy('created_at', 'asc')
+            ->paginate($perPage);
+
+        return response()->json([
+            'data'         => $messages->items(),
+            'total'        => $messages->total(),
+            'per_page'     => $messages->perPage(),
+            'current_page' => $messages->currentPage(),
+            'last_page'    => $messages->lastPage(),
+            'has_more'     => $messages->hasMorePages(),
+        ]);
     }
 }

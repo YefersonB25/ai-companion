@@ -398,11 +398,16 @@ class AdminController extends Controller
     {
         $user->update(['is_admin' => ! $user->is_admin]);
 
-        return response()->json([
-            'id'       => $user->id,
-            'email'    => $user->email,
+        // B-12: audit log
+        \Log::info('Admin role changed', [
+            'by'      => request()->user()->email,
+            'target'  => $user->email,
             'is_admin' => $user->is_admin,
+            'ip'      => request()->ip(),
+            'at'      => now()->toISOString(),
         ]);
+
+        return response()->json(['is_admin' => $user->is_admin]);
     }
 
     // ─────────────────────────────────────────────
