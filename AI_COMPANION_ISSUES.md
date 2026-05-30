@@ -64,26 +64,38 @@
 ## 🟢 MEJORAS (backlog)
 
 ### Backend
-- [ ] **B-12** Audit log cuando se cambia `is_admin` de un usuario
-- [ ] **B-13** Respuestas de API inconsistentes — unificar formato `{success, data, error}`
-- [ ] **B-14** `ConversationController::show` sin paginación de mensajes — 10k msgs = crash
+- [x] ~~**B-12** Audit log cuando se cambia `is_admin`~~ ✅ 2026-05-30
+- [x] ~~**B-13** Respuestas inconsistentes — unificar formato~~ ✅ 2026-05-30 — Response macros globales
+- [x] ~~**B-14** messages() sin paginación~~ ✅ 2026-05-30 — paginate(50), max 100, has_more
 
 ### Web
-- [ ] **W-06** Skeleton loaders en admin en lugar de texto "Cargando..."
-- [ ] **W-07** Providers page expone API key en historial del formulario
-- [ ] **W-08** Settings page demasiado larga — dividir en tabs o sub-páginas
+- [x] ~~**W-06** Texto "Cargando..." en admin~~ ✅ 2026-05-30 — StatCardSkeleton, ChartSkeleton, TableSkeleton
+- [x] ~~**W-07** API key expuesta en historial~~ ✅ 2026-05-30 — autoComplete=new-password, limpia tras guardar
+- [x] ~~**W-08** Settings muy larga~~ ✅ 2026-05-30 — 5 tabs: General/Voz/Dispositivo/Briefing/Asistente
 
 ### Mobile
-- [ ] **M-07** FlatList en chat sin `maxToRenderPerBatch` — lento en conversaciones largas
-- [ ] **M-08** Imágenes en mensajes sin aspect ratio fijo — layout thrashing
-- [ ] **M-09** `UpdateModule` no valida integridad del APK descargado (CRC/hash)
-- [ ] **M-10** `AriaNotificationListener` no filtra notificaciones de la propia app
+- [x] ~~**M-07** FlatList sin optimizaciones~~ ✅ 2026-05-30 — maxToRenderPerBatch=10, windowSize=10, removeClippedSubviews
+- [x] ~~**M-08** Imágenes sin aspect ratio~~ ✅ 2026-05-30 — aspectRatio 16/9 + placeholder gris
+- [x] ~~**M-09** APK sin validación de integridad~~ ✅ 2026-05-30 — tamaño min 10MB + magic bytes PK
+- [x] ~~**M-10** Notificaciones propias no filtradas~~ ✅ 2026-05-30 — skip packageName === own app
 
 ---
 
 ## ✅ COMPLETADOS
 
-### 2026-05-30
+### 2026-05-30 — MEJORAS
+- **B-12** Audit log en toggleAdmin
+- **B-13** Response::success() / Response::failure() macros globales
+- **B-14** ConversationController::messages() paginada 50/pág
+- **W-06** Skeleton loaders en admin (StatCard, Chart, Table)
+- **W-07** API key limpia tras guardar, autoComplete=new-password
+- **W-08** Settings con 5 tabs (General/Voz/Dispositivo/Briefing/Asistente)
+- **M-07** FlatList optimizada (maxToRenderPerBatch, windowSize, removeClippedSubviews)
+- **M-08** Imágenes con aspectRatio 16/9 fijo
+- **M-09** Validación APK: tamaño mínimo 10MB + magic bytes PK
+- **M-10** AriaNotificationListener filtra notificaciones propias
+
+### 2026-05-30 — CRÍTICOS + IMPORTANTES
 - **M-01** Token cifrado con EncryptedSharedPreferences AES-256 GCM (Android Keystore)
 - **B-05/06** AdminController::users eager loading + paginate(50)
 - **B-07** Dashboard en caché 5min, gráficas 1min
