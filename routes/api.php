@@ -22,11 +22,10 @@ Broadcast::routes(['middleware' => ['auth:sanctum']]);
 Route::post('/telegram/webhook', [WebhookController::class, 'handle']);
 
 // Public
-Route::post('/auth/register', [AuthController::class, 'register']);
-Route::post('/auth/login',    [AuthController::class, 'login']);
+Route::post('/auth/register', [AuthController::class, 'register'])->middleware('throttle:10,1');
+Route::post('/auth/login',    [AuthController::class, 'login'])->middleware('throttle:10,1');
 Route::get('/providers/supported', [AiProviderController::class, 'supportedProviders']);
-Route::get('/app/version',    [AppVersionController::class, 'check']);
-Route::post('/app/version',   [AppVersionController::class, 'store']);
+Route::get('/app/version', [AppVersionController::class, 'check']);
 
 // Authenticated
 Route::middleware('auth:sanctum')->group(function () {
@@ -37,7 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Conversations
     Route::apiResource('conversations', ConversationController::class);
-    Route::post('conversations/{conversation}/messages', [MessageController::class, 'send']);
+    Route::post('conversations/{conversation}/messages', [MessageController::class, 'send'])->middleware('throttle:60,1');
     Route::get('conversations/{conversation}/messages',  [ConversationController::class, 'messages']);
     Route::get('conversations/{conversation}/export',    [ConversationController::class, 'export']);
 
@@ -77,4 +76,5 @@ Route::middleware(['auth:sanctum', 'is_admin'])
         Route::post('/users/{user}/toggle-admin',       [AdminController::class, 'toggleAdmin']);
         Route::get('/memory',                           [AdminController::class, 'globalMemory']);
         Route::get('/insights',                         [AdminController::class, 'insights']);
+        Route::post('/app/version',                     [AppVersionController::class, 'store']);
     });

@@ -32,8 +32,9 @@ return [
     */
     'bots' => [
         'mybot' => [
-            'token'       => env('TELEGRAM_BOT_TOKEN'),
-            'webhook_url' => env('TELEGRAM_WEBHOOK_URL'),
+            'token'          => env('TELEGRAM_BOT_TOKEN'),
+            'webhook_url'    => env('TELEGRAM_WEBHOOK_URL'),
+            'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
             'allowed_updates' => ['message', 'edited_message'],
             'commands' => [
                 App\Telegram\Commands\StartCommand::class,
@@ -60,6 +61,17 @@ return [
     |
     */
     'default' => 'mybot',
+
+    /*
+    |--------------------------------------------------------------------------
+    | Webhook Secret Token [Optional]
+    |--------------------------------------------------------------------------
+    |
+    | Secret token sent by Telegram in the X-Telegram-Bot-API-Secret-Token header.
+    | Used to verify that webhook requests originate from Telegram.
+    |
+    */
+    'webhook_secret' => env('TELEGRAM_WEBHOOK_SECRET'),
 
     /*
     |--------------------------------------------------------------------------

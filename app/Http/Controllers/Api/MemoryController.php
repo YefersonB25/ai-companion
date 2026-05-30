@@ -41,6 +41,15 @@ class MemoryController extends Controller
             'parent_id'  => 'nullable|exists:memory_nodes,id',
         ]);
 
+        if (!empty($data['parent_id'])) {
+            $parentExists = MemoryNode::where('id', $data['parent_id'])
+                ->where('user_id', $request->user()->id)
+                ->exists();
+            if (!$parentExists) {
+                return response()->json(['error' => 'parent_id inválido'], 422);
+            }
+        }
+
         $node = $this->memory->store(
             $request->user(),
             $data['type'],
