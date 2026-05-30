@@ -22,6 +22,15 @@ class EmbeddingService
 
     public function embed(string $text, string $taskType = 'RETRIEVAL_DOCUMENT'): array
     {
+        $cacheKey = 'embed:' . hash('sha256', $text . '|' . $taskType . '|' . $this->provider . '|' . $this->model);
+
+        return cache()->remember($cacheKey, 86400, function () use ($text, $taskType) {
+            return $this->doEmbed($text, $taskType);
+        });
+    }
+
+    private function doEmbed(string $text, string $taskType): array
+    {
         return match ($this->provider) {
             'openai'  => $this->embedOpenAI($text),
             'gemini'  => $this->embedGemini($text, $taskType),

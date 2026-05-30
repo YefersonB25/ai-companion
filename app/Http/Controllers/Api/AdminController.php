@@ -18,98 +18,107 @@ class AdminController extends Controller
     // ─────────────────────────────────────────────
     public function dashboard(): JsonResponse
     {
-        // Basic counts
-        $totalUsers = User::count();
+        $stats = cache()->remember('admin:dashboard:stats', 300, function () {
+            $totalUsers = User::count();
 
-        $activeToday = Message::where('role', 'user')
-            ->whereDate('created_at', today())
-            ->distinct('user_id')
-            ->count('user_id');
+            $activeToday = Message::where('role', 'user')
+                ->whereDate('created_at', today())
+                ->distinct('user_id')
+                ->count('user_id');
 
-        $activeWeek = Message::where('role', 'user')
-            ->where('created_at', '>=', now()->subDays(7))
-            ->distinct('user_id')
-            ->count('user_id');
+            $activeWeek = Message::where('role', 'user')
+                ->where('created_at', '>=', now()->subDays(7))
+                ->distinct('user_id')
+                ->count('user_id');
 
-        $messagesToday = Message::where('role', 'user')
-            ->whereDate('created_at', today())
-            ->count();
+            $messagesToday = Message::where('role', 'user')
+                ->whereDate('created_at', today())
+                ->count();
 
-        $messagesWeek = Message::where('role', 'user')
-            ->where('created_at', '>=', now()->subDays(7))
-            ->count();
+            $messagesWeek = Message::where('role', 'user')
+                ->where('created_at', '>=', now()->subDays(7))
+                ->count();
 
-        $totalMemoryNodes = MemoryNode::count();
+            $totalMemoryNodes = MemoryNode::count();
 
-        $memoryGrowthToday = MemoryNode::whereDate('created_at', today())->count();
+            $memoryGrowthToday = MemoryNode::whereDate('created_at', today())->count();
 
-        // Voice activations (messages with role=user that came from voice channel or contain voice metadata)
-        $voiceActivationsWeek = Message::where('role', 'user')
-            ->where('created_at', '>=', now()->subDays(7))
-            ->whereHas('conversation', function ($q) {
-                $q->where('channel', 'voice');
-            })
-            ->count();
+            // Voice activations (messages with role=user that came from voice channel or contain voice metadata)
+            $voiceActivationsWeek = Message::where('role', 'user')
+                ->where('created_at', '>=', now()->subDays(7))
+                ->whereHas('conversation', function ($q) {
+                    $q->where('channel', 'voice');
+                })
+                ->count();
 
-        $tokenStats = Message::where('role', 'assistant')
-            ->selectRaw('SUM(input_tokens) as total_input, SUM(output_tokens) as total_output')
-            ->first();
+            $tokenStats = Message::where('role', 'assistant')
+                ->selectRaw('SUM(input_tokens) as total_input, SUM(output_tokens) as total_output')
+                ->first();
 
-        // Messages by day — last 30 days
-        $messagesByDay = Message::where('role', 'user')
-            ->where('created_at', '>=', now()->subDays(30))
-            ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get()
-            ->map(fn ($row) => ['date' => $row->date, 'count' => (int) $row->count]);
-
-        // Memory by day with cumulative — last 30 days
-        $memoryStartDate = now()->subDays(30);
-        $memoryBase = MemoryNode::where('created_at', '<', $memoryStartDate)->count();
-
-        $memoryRaw = MemoryNode::where('created_at', '>=', $memoryStartDate)
-            ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get();
-
-        $cumulative = $memoryBase;
-        $memoryByDay = $memoryRaw->map(function ($row) use (&$cumulative) {
-            $cumulative += (int) $row->count;
             return [
-                'date'       => $row->date,
-                'count'      => (int) $row->count,
-                'cumulative' => $cumulative,
+                'total_users'            => $totalUsers,
+                'active_today'           => $activeToday,
+                'active_week'            => $activeWeek,
+                'messages_today'         => $messagesToday,
+                'messages_week'          => $messagesWeek,
+                'total_memory_nodes'     => $totalMemoryNodes,
+                'memory_growth_today'    => $memoryGrowthToday,
+                'voice_activations_week' => $voiceActivationsWeek,
+                'total_input_tokens'     => (int) ($tokenStats->total_input ?? 0),
+                'total_output_tokens'    => (int) ($tokenStats->total_output ?? 0),
             ];
         });
 
-        // Messages by provider
-        $messagesByProvider = Message::where('role', 'assistant')
-            ->whereNotNull('provider')
-            ->selectRaw('provider, COUNT(*) as count, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens')
-            ->groupBy('provider')
-            ->get()
-            ->map(fn ($row) => [
-                'provider'      => $row->provider,
-                'count'         => (int) $row->count,
-                'input_tokens'  => (int) $row->input_tokens,
-                'output_tokens' => (int) $row->output_tokens,
-            ]);
+        // Messages by day — last 30 days (1 min cache)
+        $messagesByDay = cache()->remember('admin:dashboard:messages_by_day', 60, function () {
+            return Message::where('role', 'user')
+                ->where('created_at', '>=', now()->subDays(30))
+                ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
+                ->groupBy('date')
+                ->orderBy('date')
+                ->get()
+                ->map(fn ($row) => ['date' => $row->date, 'count' => (int) $row->count]);
+        });
+
+        // Memory by day with cumulative — last 30 days (1 min cache)
+        $memoryByDay = cache()->remember('admin:dashboard:memory_by_day', 60, function () {
+            $memoryStartDate = now()->subDays(30);
+            $memoryBase = MemoryNode::where('created_at', '<', $memoryStartDate)->count();
+
+            $memoryRaw = MemoryNode::where('created_at', '>=', $memoryStartDate)
+                ->selectRaw('DATE(created_at) as date, COUNT(*) as count')
+                ->groupBy('date')
+                ->orderBy('date')
+                ->get();
+
+            $cumulative = $memoryBase;
+            return $memoryRaw->map(function ($row) use (&$cumulative) {
+                $cumulative += (int) $row->count;
+                return [
+                    'date'       => $row->date,
+                    'count'      => (int) $row->count,
+                    'cumulative' => $cumulative,
+                ];
+            });
+        });
+
+        // Messages by provider (1 min cache)
+        $messagesByProvider = cache()->remember('admin:dashboard:messages_by_provider', 60, function () {
+            return Message::where('role', 'assistant')
+                ->whereNotNull('provider')
+                ->selectRaw('provider, COUNT(*) as count, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens')
+                ->groupBy('provider')
+                ->get()
+                ->map(fn ($row) => [
+                    'provider'      => $row->provider,
+                    'count'         => (int) $row->count,
+                    'input_tokens'  => (int) $row->input_tokens,
+                    'output_tokens' => (int) $row->output_tokens,
+                ]);
+        });
 
         return response()->json([
-            'stats' => [
-                'total_users'          => $totalUsers,
-                'active_today'         => $activeToday,
-                'active_week'          => $activeWeek,
-                'messages_today'       => $messagesToday,
-                'messages_week'        => $messagesWeek,
-                'total_memory_nodes'   => $totalMemoryNodes,
-                'memory_growth_today'  => $memoryGrowthToday,
-                'voice_activations_week' => $voiceActivationsWeek,
-                'total_input_tokens'   => (int) ($tokenStats->total_input ?? 0),
-                'total_output_tokens'  => (int) ($tokenStats->total_output ?? 0),
-            ],
+            'stats'                => $stats,
             'messages_by_day'      => $messagesByDay,
             'memory_by_day'        => $memoryByDay,
             'messages_by_provider' => $messagesByProvider,
@@ -122,17 +131,14 @@ class AdminController extends Controller
     public function users(): JsonResponse
     {
         $users = User::withCount(['messages', 'conversations', 'memoryNodes'])
-            ->with(['memoryNodes' => function ($q) {
-                $q->select('id', 'user_id', 'type', 'created_at');
-            }])
-            ->get();
+            ->with([
+                'messages'    => fn ($q) => $q->where('role', 'user')->latest()->limit(1)->select('user_id', 'created_at'),
+                'memoryNodes' => fn ($q) => $q->select('user_id', 'type', 'created_at'),
+            ])
+            ->orderByDesc('created_at')
+            ->paginate(50);
 
-        $result = $users->map(function (User $user) {
-            $lastMessage = Message::where('user_id', $user->id)
-                ->where('role', 'user')
-                ->latest()
-                ->value('created_at');
-
+        $items = $users->getCollection()->map(function (User $user) {
             $brainScore = $this->computeBrainScore($user);
 
             return [
@@ -144,12 +150,12 @@ class AdminController extends Controller
                 'messages_count'      => $user->messages_count,
                 'conversations_count' => $user->conversations_count,
                 'memory_nodes_count'  => $user->memory_nodes_count,
-                'last_active_at'      => $lastMessage,
+                'last_active_at'      => $user->messages->first()?->created_at,
                 'brain_score'         => $brainScore,
             ];
         });
 
-        return response()->json($result);
+        return response()->json($items);
     }
 
     // ─────────────────────────────────────────────
