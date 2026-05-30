@@ -1,6 +1,6 @@
 # AI Companion — Backend (Laravel)
 
-API REST del asistente personal de IA "Aria". Multi-tenant, multi-proveedor, con memoria vectorial, WebSockets, bot de Telegram y panel de administración.
+API REST del asistente personal de IA **Aria**. Multi-tenant, multi-proveedor, con memoria vectorial, WebSockets, bot de Telegram y panel de administración exclusivo para desarrolladores.
 
 ---
 
@@ -10,13 +10,13 @@ API REST del asistente personal de IA "Aria". Multi-tenant, multi-proveedor, con
 |------|-----------|
 | Framework | Laravel 13 + PHP 8.3 |
 | Auth | Laravel Sanctum (tokens Bearer) |
-| Base de datos | SQLite (dev) / MySQL (prod) |
+| Base de datos | SQLite (dev) / MySQL (prod: `ai_companion`) |
 | WebSockets | Laravel Reverb (puerto 8080) |
-| Colas | Laravel Queue (driver `database`) |
+| Colas | Laravel Queue (driver `database`, tries=3) |
 | Vector DB | Qdrant 1.14+ |
-| Embeddings | Gemini `gemini-embedding-001` (3072 dims) |
-| Bot | Telegram Bot API (webhook) |
-| Proveedor IA prod | Gemini 2.0 Flash (gemini-2.0-flash) |
+| Embeddings | Gemini `gemini-embedding-001` (3072 dims, caché 24h) |
+| Proveedor IA prod | Gemini 2.0 Flash (free: 1500 req/día) |
+| Bot | Telegram Bot API (webhook con validación de firma) |
 
 ---
 
@@ -24,7 +24,7 @@ API REST del asistente personal de IA "Aria". Multi-tenant, multi-proveedor, con
 
 ### Requisitos
 - PHP 8.3 + Composer
-- [Laravel Herd](https://herd.laravel.com/) (recomendado)
+- [Laravel Herd](https://herd.laravel.com/)
 - Qdrant binario: `~/bin/qdrant`
 
 ### Instalación
@@ -36,16 +36,16 @@ composer install
 cp .env.example .env
 php artisan key:generate
 php artisan migrate
-php artisan db:seed --class=AdminSeeder  # crea usuario admin
+php artisan db:seed --class=AdminSeeder   # crea usuario admin desde .env
 ```
 
-### Arrancar servicios
+### Arrancar
 
 ```bash
-~/bin/qdrant                    # Vector DB
-php artisan reverb:start        # WebSockets
-php artisan queue:work          # Colas
-# Laravel Herd corre en http://ai-companion.test automáticamente
+~/bin/qdrant                   # Vector DB
+php artisan reverb:start       # WebSockets
+php artisan queue:work         # Colas
+# Herd corre en http://ai-companion.test automáticamente
 ```
 
 ---
@@ -65,30 +65,35 @@ REVERB_APP_KEY=...
 REVERB_APP_SECRET=...
 REVERB_HOST=localhost
 REVERB_PORT=8080
-REVERB_SCHEME=http
 
 # Qdrant
 QDRANT_URL=http://localhost:6333
 QDRANT_COLLECTION=ai_companion_memories
 
-# Proveedores IA (al menos uno requerido)
+# Proveedores IA
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
+DEEPSEEK_API_KEY=
+MISTRAL_API_KEY=
 
-# Herramientas
-SERPER_API_KEY=
-TAVILY_API_KEY=
-OPENWEATHER_API_KEY=
+# Herramientas del asistente
+SERPER_API_KEY=      # búsqueda web
+TAVILY_API_KEY=      # búsqueda web fallback
+OPENWEATHER_API_KEY= # clima
 
 # Telegram
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_URL=https://tu-dominio.com/api/telegram/webhook
+TELEGRAM_WEBHOOK_SECRET=   # valida firma del webhook
 
 # Push (Expo)
 EXPO_PUSH_URL=https://exp.host/--/api/v2/push/send
 
-# Admin panel (developer access only)
+# CORS (separado por comas)
+CORS_ALLOWED_ORIGINS=http://localhost:3000,https://ai.omnirepair.online
+
+# Admin panel (solo desarrolladores)
 ADMIN_EMAIL=admin@aicompanion.dev
 ADMIN_PASSWORD=
 ADMIN_NAME="AI Companion Admin"
@@ -96,15 +101,34 @@ ADMIN_NAME="AI Companion Admin"
 
 ---
 
-## Sistema de Aria (AI Identity)
+## Aria — Identidad del asistente
 
-El system prompt incluye la identidad completa de **Aria** y sus capacidades:
-- Nombre: Aria, asistente tipo Jarvis
-- Wake words: "Hey Aria", "Oye Aria", "Hola Aria"
+El system prompt define a **Aria** como asistente personal tipo Jarvis:
+
+- **Nombre**: Aria, asistente de AI Companion
+- **Wake words**: "Hey Aria", "Oye Aria", "Hola Aria"
 - **Modo voz** (`voice=true`): respuestas 2-3 oraciones sin markdown
-- **Modo conducción** (`driving_mode=true`): respuestas 1 oración
-- **GPS context** (`location={lat,lng}`): respuestas contextualizadas por ubicación
-- Acciones del teléfono: calls, SMS, WhatsApp, música, apps, pantalla, linterna, brillo, volumen, notificaciones
+- **Modo conducción** (`driving_mode=true`): 1 oración máximo, prioridad seguridad
+- **Contexto GPS** (`location={lat,lng}`): respuestas contextualizadas por ubicación
+
+### Acciones del teléfono (bloques `[ACTION]...[/ACTION]`)
+
+| Acción | JSON |
+|--------|------|
+| Llamar | `{"type":"make_call","contact":"nombre o número"}` |
+| SMS | `{"type":"send_sms","contact":"...","message":"..."}` |
+| WhatsApp | `{"type":"send_whatsapp","contact":"...","message":"..."}` |
+| Email | `{"type":"send_email","to":"...","subject":"...","body":"..."}` |
+| Música (reanudar) | `{"type":"play_music","resume":true}` |
+| Música (buscar) | `{"type":"play_music","query":"...","app":"spotify\|youtubemusic"}` |
+| Abrir app | `{"type":"open_app","name":"whatsapp\|telegram\|spotify\|..."}` |
+| Bloquear pantalla | `{"type":"screen_off"}` |
+| Encender pantalla | `{"type":"screen_on"}` |
+| Linterna | `{"type":"flashlight","on":true\|false}` |
+| Volumen | `{"type":"set_volume","level":0-15}` |
+| Brillo | `{"type":"set_brightness","level":0-255}` |
+| Notificaciones | `{"type":"read_notifications"}` |
+| Recordatorio | `{"type":"set_reminder","when":"ISO8601","message":"..."}` |
 
 ---
 
@@ -112,85 +136,101 @@ El system prompt incluye la identidad completa de **Aria** y sus capacidades:
 
 **Base URL producción:** `https://ai.omnirepair.online/api`
 
+### Rate limiting
+- Auth: `10 req/min` por IP
+- Messages: `60 req/min` por usuario
+
 ### Pública
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
 | POST | `/auth/register` | Registro |
 | POST | `/auth/login` | Login → token |
-| GET | `/providers/supported` | Proveedores disponibles |
+| GET | `/providers/supported` | Proveedores IA disponibles |
 | GET | `/app/version?platform=android&version_code=N` | Verifica actualización |
-| POST | `/app/version` | Registra nueva versión APK |
-| POST | `/telegram/webhook` | Webhook Telegram |
+| POST | `/telegram/webhook` | Webhook Telegram (valida firma) |
 
 ### Autenticada (Bearer token)
 
-**Mensajes** — acepta campos opcionales:
-- `voice: boolean` — activa modo voz (respuestas cortas)
-- `driving_mode: boolean` — activa modo conducción
-- `location: {lat, lng}` — contexto GPS
-- `stream: boolean` — streaming SSE (default: true en chat, false en voz)
+El endpoint de mensajes acepta campos opcionales:
+- `voice: boolean` — modo voz (respuestas cortas sin markdown)
+- `driving_mode: boolean` — modo conducción (1 oración)
+- `location: {lat, lng}` — contexto de ubicación
+- `stream: boolean` — streaming SSE (default: true)
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| GET | `/conversations` | Lista conversaciones |
-| POST | `/conversations` | Nueva conversación |
-| DELETE | `/conversations/{id}` | Elimina conversación |
-| GET | `/conversations/{id}/messages` | Mensajes (SSE streaming) |
+| POST/GET | `/auth/logout`, `/auth/me` | Auth |
+| GET | `/conversations` | Lista |
+| POST | `/conversations` | Nueva |
+| DELETE | `/conversations/{id}` | Elimina |
+| GET | `/conversations/{id}/messages?per_page=50` | Mensajes paginados |
 | POST | `/conversations/{id}/messages` | Envía mensaje |
-| GET | `/conversations/{id}/export` | Exporta en JSON |
-| GET | `/providers` | Lista proveedores |
-| POST/PUT/DELETE | `/providers/{id}` | CRUD proveedores |
-| GET/PUT | `/memory` | Nodos de memoria |
-| GET | `/memory/mindmap` | Estructura mapa mental |
+| GET | `/conversations/{id}/export` | Exporta JSON |
+| GET/POST/PUT/DELETE | `/providers/{id}` | CRUD proveedores |
+| GET/POST/PUT/DELETE | `/memory/{id}` | CRUD memorias |
+| GET | `/memory/mindmap` | Mapa mental |
 | GET | `/memory/search?q=texto` | Búsqueda semántica (Qdrant) |
-| GET/PUT | `/settings` | Configuración usuario |
-| GET/PUT | `/profile` | Perfil usuario |
+| GET/PUT | `/settings` | Configuración |
+| GET/PUT | `/profile` | Perfil personal |
 | GET | `/briefing/today` | Briefing diario |
-| POST/DELETE | `/device-tokens` | Tokens push (Expo) |
+| POST/DELETE | `/device-tokens` | Tokens push |
 
-### Admin (requiere `is_admin=true`)
+### Admin (`is_admin=true` requerido)
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| GET | `/admin/dashboard` | Stats globales, gráficas |
-| GET | `/admin/users` | Usuarios con brain score |
-| GET | `/admin/users/{id}` | Detalle usuario + memoria |
-| POST | `/admin/users/{id}/toggle-admin` | Cambiar rol admin |
-| GET | `/admin/memory` | Cerebro global analytics |
+| GET | `/admin/dashboard` | Stats globales (caché 5min) |
+| GET | `/admin/users` | Usuarios con brain score (paginate 50) |
+| GET | `/admin/users/{id}` | Detalle + memoria del usuario |
+| POST | `/admin/users/{id}/toggle-admin` | Cambiar rol (con audit log) |
+| GET | `/admin/memory` | Cerebro global |
 | GET | `/admin/insights` | Insights generados por IA |
+| POST | `/admin/app/version` | Registrar nueva versión APK |
 
 ---
 
-## Panel Admin — Acceso Exclusivo
+## Panel Admin — Acceso exclusivo
 
-El panel admin en `/admin` es solo para desarrolladores. Los usuarios normales **nunca** pueden acceder.
+El panel admin es solo para desarrolladores. **Nunca** accesible por usuarios normales.
 
 ```bash
-# Crear usuario admin (con .env configurado)
+# Crear admin desde .env
 php artisan db:seed --class=AdminSeeder
 
 # O manualmente
-php artisan app:make-admin admin@email.com
+php artisan app:make-admin tu@email.com
 
 # En producción
 ssh root@134.122.21.84
-php artisan app:make-admin tu@email.com
+php artisan app:make-admin yefersonbolano25@gmail.com
 ```
 
-Credenciales se configuran en `.env` con `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`.
+El campo `is_admin=false` está hardcodeado en el registro normal. Cambios de rol se loggean con IP, quién y cuándo.
 
 ---
 
 ## Comandos Artisan
 
 ```bash
-php artisan memory:reindex           # Reindexar memoria en Qdrant
-php artisan telegram:set-webhook     # Registrar webhook Telegram
-php artisan telegram:delete-webhook  # Eliminar webhook
-php artisan app:make-admin {email}   # Crear usuario admin
-php artisan db:seed --class=AdminSeeder  # Seeder admin desde .env
+php artisan memory:reindex                       # Reindexar Qdrant
+php artisan telegram:set-webhook                 # Registrar webhook
+php artisan telegram:delete-webhook              # Eliminar webhook
+php artisan app:make-admin {email}               # Crear admin
+php artisan db:seed --class=AdminSeeder          # Seeder admin desde .env
 ```
+
+---
+
+## Seguridad implementada
+
+- Rate limiting en auth (10/min) y messages (60/min)
+- `POST /api/app/version` protegido con `is_admin` middleware
+- Telegram webhook valida `X-Telegram-Bot-API-Secret-Token`
+- `parent_id` en memorias verifica ownership (IDOR fix)
+- CORS desde variable de entorno `CORS_ALLOWED_ORIGINS`
+- Audit log en cambios de rol admin
+- Arrays en ProfileController con límite `max:20`
 
 ---
 
@@ -200,7 +240,7 @@ Supervisor (`/etc/supervisor/conf.d/ai-companion.conf`):
 
 | Proceso | Descripción |
 |---------|-------------|
-| `ai-companion-worker` | Cola de trabajos (×2) |
+| `ai-companion-worker` | Cola de trabajos (×2, tries=3) |
 | `ai-companion-reverb` | WebSockets puerto 8080 |
 | `ai-companion-qdrant` | Vector DB Qdrant |
 | `ai-companion-web` | Frontend Next.js puerto 3000 |
@@ -208,6 +248,7 @@ Supervisor (`/etc/supervisor/conf.d/ai-companion.conf`):
 ```bash
 supervisorctl status
 tail -f /var/www/ai-companion/storage/logs/worker.log
+tail -f /var/www/ai-companion/storage/logs/reverb.log
 ```
 
 ---
@@ -222,11 +263,11 @@ git push origin main
 
 # Servidor
 ssh root@134.122.21.84
-deploy backend        # pull + migrate + restart workers
-deploy web            # pull + npm build + restart Next.js
-deploy all            # ambos
-deploy rollback backend          # revertir al commit anterior
-deploy rollback backend abc123   # revertir a commit específico
+deploy backend         # git pull + migrate + restart workers
+deploy web             # git pull + npm build + restart Next.js
+deploy all             # ambos
+deploy rollback backend [hash]
+deploy rollback web [hash]
 ```
 
 ---
@@ -240,4 +281,10 @@ deploy rollback backend abc123   # revertir a commit específico
 | WebSockets | `wss://ai.omnirepair.online/app/{key}` |
 | Servidor | `root@134.122.21.84` |
 | DB | MySQL — `ai_companion` |
-| Proveedor IA | Gemini 2.0 Flash (free tier: 1500 req/día) |
+| Nginx | `/api/*` → Laravel, resto → Next.js:3000 |
+
+---
+
+## Archivo de issues
+
+Ver `AI_COMPANION_ISSUES.md` — tracking completo de la auditoría con 31 issues resueltos (10 críticos, 11 importantes, 10 mejoras).
