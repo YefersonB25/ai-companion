@@ -1,6 +1,6 @@
 # AI Companion — Backend (Laravel)
 
-API REST del asistente personal de IA. Multi-tenant, multi-proveedor, con memoria vectorial, WebSockets y bot de Telegram.
+API REST del asistente personal de IA "Aria". Multi-tenant, multi-proveedor, con memoria vectorial, WebSockets, bot de Telegram y panel de administración.
 
 ---
 
@@ -10,12 +10,13 @@ API REST del asistente personal de IA. Multi-tenant, multi-proveedor, con memori
 |------|-----------|
 | Framework | Laravel 13 + PHP 8.3 |
 | Auth | Laravel Sanctum (tokens Bearer) |
-| Base de datos | SQLite (dev) / MySQL o PostgreSQL (prod) |
+| Base de datos | SQLite (dev) / MySQL (prod) |
 | WebSockets | Laravel Reverb (puerto 8080) |
 | Colas | Laravel Queue (driver `database`) |
 | Vector DB | Qdrant 1.14+ |
 | Embeddings | Gemini `gemini-embedding-001` (3072 dims) |
 | Bot | Telegram Bot API (webhook) |
+| Proveedor IA prod | Gemini 2.0 Flash (gemini-2.0-flash) |
 
 ---
 
@@ -23,8 +24,7 @@ API REST del asistente personal de IA. Multi-tenant, multi-proveedor, con memori
 
 ### Requisitos
 - PHP 8.3 + Composer
-- Node.js 20+
-- [Laravel Herd](https://herd.laravel.com/) (recomendado) o `php artisan serve`
+- [Laravel Herd](https://herd.laravel.com/) (recomendado)
 - Qdrant binario: `~/bin/qdrant`
 
 ### Instalación
@@ -36,23 +36,16 @@ composer install
 cp .env.example .env
 php artisan key:generate
 php artisan migrate
+php artisan db:seed --class=AdminSeeder  # crea usuario admin
 ```
 
 ### Arrancar servicios
 
 ```bash
-# Qdrant (vector DB) — en una terminal separada
-~/bin/qdrant
-
-# WebSockets (Reverb)
-php artisan reverb:start
-
-# Cola de trabajos
-php artisan queue:work
-
-# Con Herd el servidor PHP corre automáticamente en http://ai-companion.test
-# Sin Herd:
-php artisan serve
+~/bin/qdrant                    # Vector DB
+php artisan reverb:start        # WebSockets
+php artisan queue:work          # Colas
+# Laravel Herd corre en http://ai-companion.test automáticamente
 ```
 
 ---
@@ -67,9 +60,9 @@ DB_CONNECTION=sqlite
 
 # Reverb WebSockets
 BROADCAST_CONNECTION=reverb
-REVERB_APP_ID=tu_app_id
-REVERB_APP_KEY=tu_app_key
-REVERB_APP_SECRET=tu_app_secret
+REVERB_APP_ID=...
+REVERB_APP_KEY=...
+REVERB_APP_SECRET=...
 REVERB_HOST=localhost
 REVERB_PORT=8080
 REVERB_SCHEME=http
@@ -82,21 +75,36 @@ QDRANT_COLLECTION=ai_companion_memories
 GEMINI_API_KEY=
 OPENAI_API_KEY=
 ANTHROPIC_API_KEY=
-DEEPSEEK_API_KEY=
-MISTRAL_API_KEY=
 
-# Herramientas del asistente
-SERPER_API_KEY=       # búsqueda web
-TAVILY_API_KEY=       # búsqueda web (fallback)
-OPENWEATHER_API_KEY=  # clima
+# Herramientas
+SERPER_API_KEY=
+TAVILY_API_KEY=
+OPENWEATHER_API_KEY=
 
-# Telegram bot
+# Telegram
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_WEBHOOK_URL=https://tu-dominio.com/api/telegram/webhook
 
-# Push notifications (Expo)
+# Push (Expo)
 EXPO_PUSH_URL=https://exp.host/--/api/v2/push/send
+
+# Admin panel (developer access only)
+ADMIN_EMAIL=admin@aicompanion.dev
+ADMIN_PASSWORD=
+ADMIN_NAME="AI Companion Admin"
 ```
+
+---
+
+## Sistema de Aria (AI Identity)
+
+El system prompt incluye la identidad completa de **Aria** y sus capacidades:
+- Nombre: Aria, asistente tipo Jarvis
+- Wake words: "Hey Aria", "Oye Aria", "Hola Aria"
+- **Modo voz** (`voice=true`): respuestas 2-3 oraciones sin markdown
+- **Modo conducción** (`driving_mode=true`): respuestas 1 oración
+- **GPS context** (`location={lat,lng}`): respuestas contextualizadas por ubicación
+- Acciones del teléfono: calls, SMS, WhatsApp, música, apps, pantalla, linterna, brillo, volumen, notificaciones
 
 ---
 
@@ -104,175 +112,121 @@ EXPO_PUSH_URL=https://exp.host/--/api/v2/push/send
 
 **Base URL producción:** `https://ai.omnirepair.online/api`
 
-### Pública (sin auth)
+### Pública
 
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| POST | `/auth/register` | Registro de usuario |
-| POST | `/auth/login` | Login → devuelve token |
-| GET | `/providers/supported` | Proveedores de IA disponibles |
-| GET | `/app/version?platform=android&version_code=N` | Verifica actualización disponible |
-| POST | `/app/version` | Registra nueva versión (deploy) |
-| POST | `/telegram/webhook` | Webhook del bot de Telegram |
+| POST | `/auth/register` | Registro |
+| POST | `/auth/login` | Login → token |
+| GET | `/providers/supported` | Proveedores disponibles |
+| GET | `/app/version?platform=android&version_code=N` | Verifica actualización |
+| POST | `/app/version` | Registra nueva versión APK |
+| POST | `/telegram/webhook` | Webhook Telegram |
 
 ### Autenticada (Bearer token)
 
-**Auth**
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| POST | `/auth/logout` | Cierra sesión (revoca token) |
-| GET | `/auth/me` | Datos del usuario autenticado |
+**Mensajes** — acepta campos opcionales:
+- `voice: boolean` — activa modo voz (respuestas cortas)
+- `driving_mode: boolean` — activa modo conducción
+- `location: {lat, lng}` — contexto GPS
+- `stream: boolean` — streaming SSE (default: true en chat, false en voz)
 
-**Conversaciones**
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
 | GET | `/conversations` | Lista conversaciones |
 | POST | `/conversations` | Nueva conversación |
-| GET | `/conversations/{id}` | Detalle de conversación |
 | DELETE | `/conversations/{id}` | Elimina conversación |
-| GET | `/conversations/{id}/messages` | Mensajes (con streaming SSE) |
-| POST | `/conversations/{id}/messages` | Envía mensaje (soporta imagen) |
-| GET | `/conversations/{id}/export` | Exporta conversación en JSON |
-
-**Proveedores IA**
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/providers` | Lista proveedores configurados |
-| POST | `/providers` | Agrega proveedor |
-| PUT | `/providers/{id}` | Actualiza proveedor |
-| DELETE | `/providers/{id}` | Elimina proveedor |
-
-**Memoria**
-| Método | Endpoint | Descripción |
-|--------|----------|-------------|
-| GET | `/memory` | Lista nodos de memoria |
-| POST | `/memory` | Crea nodo manual |
-| PUT | `/memory/{id}` | Actualiza nodo |
-| DELETE | `/memory/{id}` | Elimina nodo |
-| GET | `/memory/mindmap` | Estructura para mapa mental |
+| GET | `/conversations/{id}/messages` | Mensajes (SSE streaming) |
+| POST | `/conversations/{id}/messages` | Envía mensaje |
+| GET | `/conversations/{id}/export` | Exporta en JSON |
+| GET | `/providers` | Lista proveedores |
+| POST/PUT/DELETE | `/providers/{id}` | CRUD proveedores |
+| GET/PUT | `/memory` | Nodos de memoria |
+| GET | `/memory/mindmap` | Estructura mapa mental |
 | GET | `/memory/search?q=texto` | Búsqueda semántica (Qdrant) |
+| GET/PUT | `/settings` | Configuración usuario |
+| GET/PUT | `/profile` | Perfil usuario |
+| GET | `/briefing/today` | Briefing diario |
+| POST/DELETE | `/device-tokens` | Tokens push (Expo) |
 
-**Otros**
+### Admin (requiere `is_admin=true`)
+
 | Método | Endpoint | Descripción |
 |--------|----------|-------------|
-| GET | `/settings` | Configuración del usuario |
-| PUT | `/settings` | Actualiza configuración |
-| GET | `/profile` | Perfil del usuario |
-| PUT | `/profile` | Actualiza perfil |
-| GET | `/briefing/today` | Briefing diario generado por IA |
-| POST | `/device-tokens` | Registra token push (Expo) |
-| DELETE | `/device-tokens` | Elimina token push |
+| GET | `/admin/dashboard` | Stats globales, gráficas |
+| GET | `/admin/users` | Usuarios con brain score |
+| GET | `/admin/users/{id}` | Detalle usuario + memoria |
+| POST | `/admin/users/{id}/toggle-admin` | Cambiar rol admin |
+| GET | `/admin/memory` | Cerebro global analytics |
+| GET | `/admin/insights` | Insights generados por IA |
 
 ---
 
-## Comandos Artisan útiles
+## Panel Admin — Acceso Exclusivo
+
+El panel admin en `/admin` es solo para desarrolladores. Los usuarios normales **nunca** pueden acceder.
 
 ```bash
-# Reindexar memoria en Qdrant
-php artisan memory:reindex
+# Crear usuario admin (con .env configurado)
+php artisan db:seed --class=AdminSeeder
 
-# Registrar webhook de Telegram
-php artisan telegram:set-webhook
+# O manualmente
+php artisan app:make-admin admin@email.com
 
-# Eliminar webhook de Telegram
-php artisan telegram:delete-webhook
-
-# Publicar versión APK en la API
-php artisan app:publish-version
+# En producción
+ssh root@134.122.21.84
+php artisan app:make-admin tu@email.com
 ```
 
+Credenciales se configuran en `.env` con `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`.
+
 ---
 
-## Bot de Telegram
+## Comandos Artisan
 
-Comandos disponibles:
-
-| Comando | Descripción |
-|---------|-------------|
-| `/start` | Inicia el bot |
-| `/login` | Vincula cuenta de AI Companion |
-| `/register` | Crea cuenta nueva |
-| `/new` | Nueva conversación |
-| `/memory` | Ver nodos de memoria recientes |
-| `/help` | Ayuda |
-
-**Configurar en desarrollo (con ngrok):**
 ```bash
-ngrok http 80
-# Actualiza TELEGRAM_WEBHOOK_URL en .env y:
-php artisan telegram:set-webhook
+php artisan memory:reindex           # Reindexar memoria en Qdrant
+php artisan telegram:set-webhook     # Registrar webhook Telegram
+php artisan telegram:delete-webhook  # Eliminar webhook
+php artisan app:make-admin {email}   # Crear usuario admin
+php artisan db:seed --class=AdminSeeder  # Seeder admin desde .env
 ```
 
 ---
 
 ## Servicios en producción
 
-Gestionados por **Supervisor** (`/etc/supervisor/conf.d/ai-companion.conf`):
+Supervisor (`/etc/supervisor/conf.d/ai-companion.conf`):
 
 | Proceso | Descripción |
 |---------|-------------|
-| `ai-companion-worker` | Cola de trabajos (×2 procesos) |
-| `ai-companion-reverb` | WebSockets en puerto 8080 |
+| `ai-companion-worker` | Cola de trabajos (×2) |
+| `ai-companion-reverb` | WebSockets puerto 8080 |
 | `ai-companion-qdrant` | Vector DB Qdrant |
-| `ai-companion-web` | Frontend Next.js en puerto 3000 |
+| `ai-companion-web` | Frontend Next.js puerto 3000 |
 
 ```bash
-# Ver estado
 supervisorctl status
-
-# Reiniciar workers
-supervisorctl restart ai-companion-worker:*
-
-# Ver logs
 tail -f /var/www/ai-companion/storage/logs/worker.log
-tail -f /var/www/ai-companion/storage/logs/reverb.log
 ```
 
 ---
 
 ## Deploy
 
-Todo cambio al servidor debe venir de git. **Nunca editar archivos directamente en el servidor.**
-
-### Flujo de trabajo
+**Nunca editar archivos directamente en el servidor.**
 
 ```bash
-# 1. En tu máquina: hacer cambios, commit y push
-git add .
-git commit -m "feat: descripción del cambio"
+# Local: commit y push
 git push origin main
 
-# 2. En el servidor:
+# Servidor
 ssh root@134.122.21.84
-deploy backend
-```
-
-El script `scripts/deploy.sh` ejecuta automáticamente:
-1. `git pull origin main`
-2. `composer install --no-dev --optimize-autoloader`
-3. `php artisan migrate --force`
-4. Reconstruye cachés (config, routes, views, events)
-5. Reinicia workers, Reverb y PHP-FPM
-
-### Revertir un error
-
-```bash
-# Revertir al commit anterior
-deploy rollback backend
-
-# Revertir a un commit específico (el hash se muestra al final de cada deploy)
-deploy rollback backend abc1234
-```
-
-### Comando global `deploy` (en el servidor)
-
-```
-deploy backend              — pull + migrate + restart workers
-deploy web                  — pull + npm build + restart Next.js
-deploy all                  — ambos proyectos
-deploy rollback backend     — revierte backend al commit anterior
-deploy rollback web         — revierte web al commit anterior
-deploy rollback backend abc123  — revierte a un commit específico
+deploy backend        # pull + migrate + restart workers
+deploy web            # pull + npm build + restart Next.js
+deploy all            # ambos
+deploy rollback backend          # revertir al commit anterior
+deploy rollback backend abc123   # revertir a commit específico
 ```
 
 ---
@@ -282,6 +236,8 @@ deploy rollback backend abc123  — revierte a un commit específico
 | | |
 |-|--|
 | API | `https://ai.omnirepair.online/api` |
+| Web | `https://ai.omnirepair.online` |
 | WebSockets | `wss://ai.omnirepair.online/app/{key}` |
 | Servidor | `root@134.122.21.84` |
-| Panel Supervisor | `supervisorctl status` |
+| DB | MySQL — `ai_companion` |
+| Proveedor IA | Gemini 2.0 Flash (free tier: 1500 req/día) |
