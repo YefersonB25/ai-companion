@@ -52,6 +52,14 @@ Formato JSON soportado:
 - Reproducir música específica: `{"type":"play_music","query":"<artista o canción>","app":"spotify"|"youtubemusic"|"youtube"}` — `app` solo si el usuario lo especifica
 - Abrir app: `{"type":"open_app","name":"whatsapp"|"telegram"|"spotify"|"youtubemusic"|"youtube"|"gmail"|"maps"|"chrome"|"instagram"|"facebook"|"twitter"}`
 - Recordatorio: `{"type":"set_reminder","when":"<ISO 8601 con timezone del usuario>","message":"<texto del recordatorio>"}`. Convierte expresiones naturales como "mañana a las 3pm", "en una hora", "el viernes" a una fecha ISO absoluta (usa `get_datetime` primero si necesitas la fecha actual).
+- Apagar pantalla/bloquear: `{"type":"screen_off"}`
+- Encender pantalla: `{"type":"screen_on"}`
+- Linterna encender: `{"type":"flashlight","on":true}`
+- Linterna apagar: `{"type":"flashlight","on":false}`
+- Subir volumen: `{"type":"set_volume","level":8}` (0-15)
+- Bajar volumen: `{"type":"set_volume","level":3}`
+- Brillo pantalla: `{"type":"set_brightness","level":128}` (0-255)
+- Leer notificaciones: `{"type":"read_notifications"}`
 
 Reglas para acciones:
 - Antes del bloque, escribe una confirmación natural en español (ej. "Listo, llamando a María." o "Te abro Spotify con Bad Bunny.")
@@ -63,6 +71,17 @@ Ejemplo:
 Usuario: "envíale un mensaje a María diciéndole que voy en camino"
 Respuesta: "Listo, le envío el mensaje a María.
 [ACTION]{"type":"send_sms","contact":"María","message":"Voy en camino"}[/ACTION]"
+
+MODO VOZ (cuando voice=true):
+- Responde en máximo 2-3 oraciones cortas y naturales
+- Sin markdown, sin listas, sin títulos — solo texto conversacional
+- Si la respuesta requiere más detalle, da un resumen y ofrece explicar más
+- Habla como si fuera una conversación, no un documento
+
+MODO CONDUCCIÓN (cuando driving_mode=true):
+- Respuestas de máximo 1-2 oraciones MUY cortas
+- Solo responde lo esencial, sin preguntas de vuelta
+- Prioriza la seguridad: si la pregunta requiere concentración, di "Te respondo cuando pares"
 
 REGLAS:
 - Si el usuario menciona algo personal nuevo (alergia, preferencia, evento), guárdalo mentalmente para futuras conversaciones
@@ -84,10 +103,13 @@ PROMPT;
         $this->authorize('view', $conversation);
 
         $data = $request->validate([
-            'content'  => 'required|string',
-            'provider' => 'nullable|string',
-            'stream'   => 'nullable|boolean',
-            'image'    => 'nullable|image|max:5120',
+            'content'      => 'required|string',
+            'provider'     => 'nullable|string',
+            'stream'       => 'nullable|boolean',
+            'image'        => 'nullable|image|max:5120',
+            'voice'        => 'nullable|boolean',
+            'driving_mode' => 'nullable|boolean',
+            'location'     => 'nullable|array',
         ]);
 
         $user = $request->user();
@@ -131,6 +153,29 @@ PROMPT;
             })
             ->toArray();
 
+        // Build dynamic context parts from voice/driving/location fields
+        $contextParts = [];
+
+        if ($data['voice'] ?? false) {
+            $contextParts[] = "[MODO VOZ ACTIVO: responde en máximo 2-3 oraciones cortas, sin markdown]";
+        }
+
+        if ($data['driving_mode'] ?? false) {
+            $contextParts[] = "[MODO CONDUCCIÓN: respuesta de máximo 1 oración, solo lo esencial]";
+        }
+
+        if (!empty($data['location'])) {
+            $loc  = $data['location'];
+            $city = $loc['city'] ?? '';
+            $lat  = $loc['lat'] ?? '';
+            $lng  = $loc['lng'] ?? '';
+            if ($city) {
+                $contextParts[] = "[UBICACIÓN ACTUAL DEL USUARIO: $city (lat: $lat, lng: $lng)]";
+            } elseif ($lat && $lng) {
+                $contextParts[] = "[UBICACIÓN ACTUAL DEL USUARIO: lat=$lat, lng=$lng]";
+            }
+        }
+
         // Build system prompt with profile + persona + memory
         $systemPrompt = self::DEFAULT_SYSTEM_PROMPT;
 
@@ -156,6 +201,10 @@ PROMPT;
             if ($memoryContext) {
                 $systemPrompt .= "\n\n" . $memoryContext;
             }
+        }
+
+        if (!empty($contextParts)) {
+            $systemPrompt .= "\n\nCONTEXTO ACTUAL:\n" . implode("\n", $contextParts);
         }
 
         array_unshift($history, ['role' => 'system', 'content' => trim($systemPrompt)]);
