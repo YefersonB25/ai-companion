@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AiProviderController;
 use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Controllers\Api\AuthController;
@@ -65,3 +66,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/device-tokens',   [DeviceTokenController::class, 'store']);
     Route::delete('/device-tokens', [DeviceTokenController::class, 'destroy']);
 });
+
+// Admin routes
+Route::middleware(['auth:sanctum', 'is_admin'])
+    ->prefix('admin')
+    ->group(function () {
+        Route::get('/dashboard',                        [AdminController::class, 'dashboard']);
+        Route::get('/users',                            [AdminController::class, 'users']);
+        Route::get('/users/{user}',                     [AdminController::class, 'userDetail']);
+        Route::post('/users/{user}/toggle-admin',       [AdminController::class, 'toggleAdmin']);
+        Route::get('/memory',                           [AdminController::class, 'globalMemory']);
+        Route::get('/insights',                         [AdminController::class, 'insights']);
+    });
