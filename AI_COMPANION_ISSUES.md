@@ -18,8 +18,8 @@
   ~~_Fix: verificar que parent_id.user_id === auth user_~~
 
 ### Seguridad — Mobile
-- [ ] **M-01** Token de sesión en `SharedPreferences` sin cifrar — legible con ADB  
-  _Fix: usar `EncryptedSharedPreferences` de AndroidX Security_
+- [x] ~~**M-01** Token de sesión en `SharedPreferences` sin cifrar — legible con ADB~~ ✅ 2026-05-30  
+  ~~_Fix: EncryptedSharedPreferences AES-256 GCM + clave en Android Keystore_~~
 - [x] ~~**M-02** Permiso `ACCESS_COARSE_LOCATION` falta en AndroidManifest — GPS siempre null~~ ✅ 2026-05-30  
   ~~_Fix: agregar permission + request runtime_~~
 
@@ -84,6 +84,7 @@
 ## ✅ COMPLETADOS
 
 ### 2026-05-30
+- **M-01** Token cifrado con EncryptedSharedPreferences AES-256 GCM (Android Keystore)
 - **B-01** POST /api/app/version movido a grupo admin (is_admin middleware)
 - **B-02** Rate limiting: throttle 10/min en auth, 60/min en messages
 - **B-03** Telegram webhook valida `X-Telegram-Bot-API-Secret-Token`
