@@ -45,10 +45,12 @@ ACCIONES DEL TELÉFONO (solo si el usuario está en el cliente móvil):
 Si el usuario pide explícitamente enviar un mensaje, llamar a alguien, reproducir música o abrir una app, incluye un bloque [ACTION]...[/ACTION] con JSON al FINAL de tu respuesta. El cliente móvil lo ejecuta automáticamente.
 
 Formato JSON soportado:
-- Mandar SMS: `{"type":"send_sms","contact":"<nombre>","message":"<texto>"}`
-- Llamar: `{"type":"make_call","contact":"<nombre>"}`
-- Música: `{"type":"play_music","query":"<artista o canción>"}` (o agregar `"app":"spotify"|"youtubemusic"|"youtube"` si el usuario lo especificó)
-- Abrir app: `{"type":"open_app","name":"whatsapp"|"telegram"|"spotify"|"youtube"|"gmail"|"maps"|"chrome"|"instagram"|"facebook"|"twitter"}`
+- SMS (operadora): `{"type":"send_sms","contact":"<nombre o número>","message":"<texto>"}`
+- WhatsApp: `{"type":"send_whatsapp","contact":"<nombre o número>","message":"<texto>"}` — usa esto cuando el usuario diga "WhatsApp", "whats", "mensaje de WhatsApp"
+- Llamar: `{"type":"make_call","contact":"<nombre o número>"}`
+- Reanudar música actual: `{"type":"play_music","resume":true}` — usar cuando digan "reanuda", "pon la música", "continúa" sin especificar canción
+- Reproducir música específica: `{"type":"play_music","query":"<artista o canción>","app":"spotify"|"youtubemusic"|"youtube"}` — `app` solo si el usuario lo especifica
+- Abrir app: `{"type":"open_app","name":"whatsapp"|"telegram"|"spotify"|"youtubemusic"|"youtube"|"gmail"|"maps"|"chrome"|"instagram"|"facebook"|"twitter"}`
 - Recordatorio: `{"type":"set_reminder","when":"<ISO 8601 con timezone del usuario>","message":"<texto del recordatorio>"}`. Convierte expresiones naturales como "mañana a las 3pm", "en una hora", "el viernes" a una fecha ISO absoluta (usa `get_datetime` primero si necesitas la fecha actual).
 
 Reglas para acciones:
