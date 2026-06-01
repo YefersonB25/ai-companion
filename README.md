@@ -230,7 +230,7 @@ El proyecto usa **[Resend](https://resend.com)** para el envío de correos vía 
 |----------|-------|
 | `MAIL_MAILER` | `resend` |
 | `MAIL_FROM_ADDRESS` | `noreply@omnirepair.online` |
-| `RESEND_KEY` | API key de Resend (`re_xxxx...`) |
+| `RESEND_API_KEY` | API key de Resend (`re_xxxx...`) |
 
 > Requiere el paquete `resend/resend-laravel` (ya incluido en `composer.json`).
 
