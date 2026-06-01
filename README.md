@@ -224,17 +224,15 @@ php artisan db:seed --class=AdminSeeder          # Seeder admin desde .env
 
 ## Email — Resend
 
-El proyecto usa **[Resend](https://resend.com)** como proveedor SMTP para el envío de correos (catálogo de licencias y notificaciones).
+El proyecto usa **[Resend](https://resend.com)** para el envío de correos vía su **API HTTP** (no SMTP), lo que funciona aunque el servidor tenga los puertos 465/587 bloqueados (caso habitual en DigitalOcean).
 
 | Variable | Valor |
 |----------|-------|
-| `MAIL_MAILER` | `smtp` |
-| `MAIL_SCHEME` | `smtps` |
-| `MAIL_HOST` | `smtp.resend.com` |
-| `MAIL_PORT` | `465` |
-| `MAIL_USERNAME` | `resend` |
-| `MAIL_PASSWORD` | API key de Resend (`re_xxxx...`) |
+| `MAIL_MAILER` | `resend` |
 | `MAIL_FROM_ADDRESS` | `noreply@omnirepair.online` |
+| `RESEND_KEY` | API key de Resend (`re_xxxx...`) |
+
+> Requiere el paquete `resend/resend-laravel` (ya incluido en `composer.json`).
 
 El correo más importante es `LicenseCatalogMail` — se envía cuando un usuario solicita una licencia y contiene el catálogo de precios con botones de WhatsApp para cada plan.
 
