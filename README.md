@@ -222,6 +222,24 @@ php artisan db:seed --class=AdminSeeder          # Seeder admin desde .env
 
 ---
 
+## Email — Resend
+
+El proyecto usa **[Resend](https://resend.com)** como proveedor SMTP para el envío de correos (catálogo de licencias y notificaciones).
+
+| Variable | Valor |
+|----------|-------|
+| `MAIL_MAILER` | `smtp` |
+| `MAIL_SCHEME` | `smtps` |
+| `MAIL_HOST` | `smtp.resend.com` |
+| `MAIL_PORT` | `465` |
+| `MAIL_USERNAME` | `resend` |
+| `MAIL_PASSWORD` | API key de Resend (`re_xxxx...`) |
+| `MAIL_FROM_ADDRESS` | `noreply@omnirepair.online` |
+
+El correo más importante es `LicenseCatalogMail` — se envía cuando un usuario solicita una licencia y contiene el catálogo de precios con botones de WhatsApp para cada plan.
+
+---
+
 ## Seguridad implementada
 
 - Rate limiting en auth (10/min) y messages (60/min)
