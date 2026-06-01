@@ -41,7 +41,7 @@ class LicenseActivatedMail extends Mailable
                 'startsAt'       => $this->license->starts_at->format('d/m/Y'),
                 'expiresAt'      => $this->license->expires_at->format('d/m/Y'),
                 'daysRemaining'  => $this->license->daysRemaining(),
-                'appUrl'         => config('app.url'),
+                'appUrl'         => rtrim(config('app.url'), '/') . '/chat',
             ],
         );
     }

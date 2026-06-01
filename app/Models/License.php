@@ -31,7 +31,12 @@ class License extends Model
     {
         static::creating(function (License $license) {
             if (empty($license->key)) {
-                $license->key = strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4));
+                // Fix #1: retry until unique key found
+                do {
+                    $key = strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4)) . '-' . strtoupper(Str::random(4));
+                } while (self::where('key', $key)->exists());
+
+                $license->key = $key;
             }
         });
     }

@@ -72,7 +72,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // License (user-facing)
     Route::get('/license/status',   [LicenseController::class, 'status']);
-    Route::post('/license/request', [LicenseController::class, 'submitRequest']);
+    // Fix #28: rate limit — max 5 requests per user per day
+    Route::post('/license/request', [LicenseController::class, 'submitRequest'])->middleware('throttle:5,1440');
 });
 
 // Admin routes

@@ -13,3 +13,6 @@ Schedule::command('briefing:send')->everyMinute()->withoutOverlapping();
 
 // Enviar notificaciones proactivas de IA a las 9:00 AM diariamente
 Schedule::command('aria:proactive')->dailyAt('09:00');
+
+// Fix #2/#10: auto-expirar licencias vencidas cada hora
+Schedule::command('licenses:expire')->hourly();

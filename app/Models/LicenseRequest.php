@@ -18,6 +18,7 @@ class LicenseRequest extends Model
         'status',
         'admin_notes',
         'catalog_sent_at',
+        'whatsapp_clicked_at', // Fix #15
     ];
 
     protected $casts = [

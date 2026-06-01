@@ -22,9 +22,10 @@ class LicenseController extends Controller
         $user     = $request->user();
         $settings = LicenseSetting::current();
 
+        // Fix #8: exclude revoked licenses from the fallback
         /** @var License|null $license */
         $license = $user->licenses()->active()->latest('expires_at')->first()
-            ?? $user->licenses()->latest()->first();
+            ?? $user->licenses()->whereIn('status', ['expired'])->latest()->first();
 
         $pendingRequest = $user->licenseRequests()
             ->where('status', 'pending')
@@ -32,9 +33,9 @@ class LicenseController extends Controller
             ->first();
 
         return response()->json([
-            'licenses_required' => $settings->licenses_required,
+            'licenses_required'  => $settings->licenses_required,
             'has_active_license' => $license?->isActive() ?? false,
-            'license' => $license ? [
+            'license'            => $license ? [
                 'id'             => $license->id,
                 'key'            => $license->key,
                 'type'           => $license->type,
@@ -55,34 +56,34 @@ class LicenseController extends Controller
 
     // ─────────────────────────────────────────────
     // GET /api/license/whatsapp/{licenseRequest}/{plan}  (público)
-    // Registra el clic del botón WhatsApp en el email del catálogo y redirige
+    // Registra el clic y redirige a WhatsApp
     // ─────────────────────────────────────────────
     public function whatsappRedirect(LicenseRequest $licenseRequest, string $plan): RedirectResponse
     {
         abort_unless(in_array($plan, ['monthly', 'yearly']), 404);
 
-        // Actualizar plan si eligió uno distinto al del formulario, y registrar clic
+        // Fix #12: abort if WhatsApp not configured
+        $settings = LicenseSetting::current();
+        $number   = preg_replace('/[^0-9]/', '', $settings->whatsapp_number ?? '');
+        abort_if(empty($number), 400, 'WhatsApp no configurado. Contacta al administrador.');
+
+        // Fix #15: whatsapp_clicked_at now in $fillable — this update works
         $licenseRequest->update([
             'plan_type'           => $plan,
             'whatsapp_clicked_at' => $licenseRequest->whatsapp_clicked_at ?? now(),
         ]);
 
-        $settings = LicenseSetting::current();
-        $number   = preg_replace('/[^0-9]/', '', $settings->whatsapp_number);
-
         $planLabel = $plan === 'monthly' ? 'mensual' : 'anual';
         $price     = $plan === 'monthly'
             ? number_format($settings->price_monthly_cop, 0, ',', '.')
             : number_format($settings->price_yearly_cop, 0, ',', '.');
-        $period    = $plan === 'monthly' ? 'mes' : 'año';
+        $period = $plan === 'monthly' ? 'mes' : 'año';
 
         $message = "Hola! Me interesa adquirir la licencia *{$planLabel}* de AI Companion (\${$price} COP/{$period}). "
             . "Mi nombre es {$licenseRequest->name}, mi email es {$licenseRequest->email} "
             . "y mi teléfono es {$licenseRequest->phone}. ¿Cómo procedo?";
 
-        $url = "https://wa.me/{$number}?text=" . urlencode($message);
-
-        return redirect()->away($url);
+        return redirect()->away("https://wa.me/{$number}?text=" . urlencode($message));
     }
 
     // ─────────────────────────────────────────────
@@ -90,6 +91,31 @@ class LicenseController extends Controller
     // ─────────────────────────────────────────────
     public function submitRequest(Request $request): JsonResponse
     {
+        $user = $request->user();
+
+        // Fix #3: user must be registered (route is behind auth:sanctum, but enforce explicitly)
+        // Fix #3: block if already has active license
+        if ($user->hasActiveLicense()) {
+            return response()->json([
+                'error'   => 'already_licensed',
+                'message' => 'Ya tienes una licencia activa. No necesitas solicitar una nueva.',
+            ], 422);
+        }
+
+        // Fix #3: block if already has a pending request
+        $existing = $user->licenseRequests()->where('status', 'pending')->latest()->first();
+        if ($existing) {
+            return response()->json([
+                'error'   => 'request_pending',
+                'message' => 'Ya tienes una solicitud en revisión. Te notificaremos pronto.',
+                'request' => [
+                    'id'         => $existing->id,
+                    'plan_type'  => $existing->plan_type,
+                    'created_at' => $existing->created_at,
+                ],
+            ], 422);
+        }
+
         $data = $request->validate([
             'name'      => 'required|string|max:100',
             'email'     => 'required|email|max:150',
@@ -99,22 +125,21 @@ class LicenseController extends Controller
             'plan_type' => 'required|in:monthly,yearly',
         ]);
 
-        $data['user_id'] = $request->user()?->id;
+        // Fix #1 of user_id: user IS authenticated here (auth:sanctum), always set
+        $data['user_id'] = $user->id;
 
         $licenseRequest = LicenseRequest::create($data);
 
         $settings = LicenseSetting::current();
 
-        // Send catalog email
         try {
-            Mail::to($data['email'])->send(
-                new LicenseCatalogMail($licenseRequest, $settings)
-            );
+            Mail::to($data['email'])->send(new LicenseCatalogMail($licenseRequest, $settings));
             $licenseRequest->update(['catalog_sent_at' => now()]);
         } catch (\Throwable $e) {
-            \Log::warning('Failed to send license catalog email', [
-                'email' => $data['email'],
-                'error' => $e->getMessage(),
+            \Log::warning('License catalog email failed', [
+                'request_id' => $licenseRequest->id,
+                'email'      => $data['email'],
+                'error'      => $e->getMessage(),
             ]);
         }
 
