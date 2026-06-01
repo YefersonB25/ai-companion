@@ -21,7 +21,8 @@ class LicenseRequest extends Model
     ];
 
     protected $casts = [
-        'catalog_sent_at' => 'datetime',
+        'catalog_sent_at'     => 'datetime',
+        'whatsapp_clicked_at' => 'datetime',
     ];
 
     public function user(): BelongsTo

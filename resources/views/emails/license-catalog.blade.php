@@ -97,21 +97,11 @@
             @endforeach
           </ul>
 
-          @if($whatsappNumber)
-          @php
-            $msgMonthly = urlencode("Hola! Me interesa adquirir la licencia *mensual* de AI Companion (\${$priceMonthly} COP/mes). Mi nombre es {$request->name}, mi email es {$request->email} y mi teléfono es {$request->phone}. ¿Cómo procedo?");
-          @endphp
-          <a href="https://wa.me/{{ $whatsappNumber }}?text={{ $msgMonthly }}"
+          <a href="{{ config('app.url') }}/api/license/whatsapp/{{ $request->id }}/monthly"
              class="btn btn-monthly"
              target="_blank">
             📲 Adquirir Plan Mensual
           </a>
-          @else
-          <a href="mailto:{{ config('mail.from.address') }}?subject=Solicitud licencia mensual - {{ $request->name }}"
-             class="btn btn-monthly">
-            ✉️ Adquirir Plan Mensual
-          </a>
-          @endif
         </div>
 
         <!-- Plan Anual -->
@@ -132,21 +122,11 @@
             @endforeach
           </ul>
 
-          @if($whatsappNumber)
-          @php
-            $msgYearly = urlencode("Hola! Me interesa adquirir la licencia *anual* de AI Companion (\${$priceYearly} COP/año). Mi nombre es {$request->name}, mi email es {$request->email} y mi teléfono es {$request->phone}. ¿Cómo procedo?");
-          @endphp
-          <a href="https://wa.me/{{ $whatsappNumber }}?text={{ $msgYearly }}"
+          <a href="{{ config('app.url') }}/api/license/whatsapp/{{ $request->id }}/yearly"
              class="btn btn-yearly"
              target="_blank">
             📲 Adquirir Plan Anual
           </a>
-          @else
-          <a href="mailto:{{ config('mail.from.address') }}?subject=Solicitud licencia anual - {{ $request->name }}"
-             class="btn btn-yearly">
-            ✉️ Adquirir Plan Anual
-          </a>
-          @endif
         </div>
 
       </div><!-- /plans -->

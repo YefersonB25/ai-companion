@@ -8,6 +8,7 @@ use App\Models\License;
 use App\Models\LicenseRequest;
 use App\Models\LicenseSetting;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 
@@ -50,6 +51,38 @@ class LicenseController extends Controller
                 'created_at' => $pendingRequest->created_at,
             ] : null,
         ]);
+    }
+
+    // ─────────────────────────────────────────────
+    // GET /api/license/whatsapp/{licenseRequest}/{plan}  (público)
+    // Registra el clic del botón WhatsApp en el email del catálogo y redirige
+    // ─────────────────────────────────────────────
+    public function whatsappRedirect(LicenseRequest $licenseRequest, string $plan): RedirectResponse
+    {
+        abort_unless(in_array($plan, ['monthly', 'yearly']), 404);
+
+        // Actualizar plan si eligió uno distinto al del formulario, y registrar clic
+        $licenseRequest->update([
+            'plan_type'           => $plan,
+            'whatsapp_clicked_at' => $licenseRequest->whatsapp_clicked_at ?? now(),
+        ]);
+
+        $settings = LicenseSetting::current();
+        $number   = preg_replace('/[^0-9]/', '', $settings->whatsapp_number);
+
+        $planLabel = $plan === 'monthly' ? 'mensual' : 'anual';
+        $price     = $plan === 'monthly'
+            ? number_format($settings->price_monthly_cop, 0, ',', '.')
+            : number_format($settings->price_yearly_cop, 0, ',', '.');
+        $period    = $plan === 'monthly' ? 'mes' : 'año';
+
+        $message = "Hola! Me interesa adquirir la licencia *{$planLabel}* de AI Companion (\${$price} COP/{$period}). "
+            . "Mi nombre es {$licenseRequest->name}, mi email es {$licenseRequest->email} "
+            . "y mi teléfono es {$licenseRequest->phone}. ¿Cómo procedo?";
+
+        $url = "https://wa.me/{$number}?text=" . urlencode($message);
+
+        return redirect()->away($url);
     }
 
     // ─────────────────────────────────────────────

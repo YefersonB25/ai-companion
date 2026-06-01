@@ -28,6 +28,7 @@ Route::post('/auth/register', [AuthController::class, 'register'])->middleware('
 Route::post('/auth/login',    [AuthController::class, 'login'])->middleware('throttle:10,1');
 Route::get('/providers/supported', [AiProviderController::class, 'supportedProviders']);
 Route::get('/app/version', [AppVersionController::class, 'check']);
+Route::get('/license/whatsapp/{licenseRequest}/{plan}', [LicenseController::class, 'whatsappRedirect']);
 
 // Authenticated
 Route::middleware('auth:sanctum')->group(function () {
