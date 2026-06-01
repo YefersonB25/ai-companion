@@ -99,7 +99,7 @@
 
           @if($whatsappNumber)
           @php
-            $msgMonthly = urlencode("Hola! Me interesa adquirir la licencia *mensual* de AI Companion (${{ $priceMonthly }} COP/mes). Mi nombre es {$request->name}, mi email es {$request->email} y mi teléfono es {$request->phone}. ¿Cómo procedo?");
+            $msgMonthly = urlencode("Hola! Me interesa adquirir la licencia *mensual* de AI Companion (\${$priceMonthly} COP/mes). Mi nombre es {$request->name}, mi email es {$request->email} y mi teléfono es {$request->phone}. ¿Cómo procedo?");
           @endphp
           <a href="https://wa.me/{{ $whatsappNumber }}?text={{ $msgMonthly }}"
              class="btn btn-monthly"
@@ -134,7 +134,7 @@
 
           @if($whatsappNumber)
           @php
-            $msgYearly = urlencode("Hola! Me interesa adquirir la licencia *anual* de AI Companion (${{ $priceYearly }} COP/año). Mi nombre es {$request->name}, mi email es {$request->email} y mi teléfono es {$request->phone}. ¿Cómo procedo?");
+            $msgYearly = urlencode("Hola! Me interesa adquirir la licencia *anual* de AI Companion (\${$priceYearly} COP/año). Mi nombre es {$request->name}, mi email es {$request->email} y mi teléfono es {$request->phone}. ¿Cómo procedo?");
           @endphp
           <a href="https://wa.me/{{ $whatsappNumber }}?text={{ $msgYearly }}"
              class="btn btn-yearly"
