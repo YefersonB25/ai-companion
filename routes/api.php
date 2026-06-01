@@ -1,12 +1,14 @@
 <?php
 
 use App\Http\Controllers\Api\AdminController;
+use App\Http\Controllers\Api\AdminLicenseController;
 use App\Http\Controllers\Api\AiProviderController;
 use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BriefingController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DeviceTokenController;
+use App\Http\Controllers\Api\LicenseController;
 use App\Http\Controllers\Api\MemoryController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ProfileController;
@@ -34,11 +36,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me',      [AuthController::class, 'me']);
 
-    // Conversations
-    Route::apiResource('conversations', ConversationController::class);
-    Route::post('conversations/{conversation}/messages', [MessageController::class, 'send'])->middleware('throttle:60,1');
-    Route::get('conversations/{conversation}/messages',  [ConversationController::class, 'messages']);
-    Route::get('conversations/{conversation}/export',    [ConversationController::class, 'export']);
+    // Conversations (license-gated)
+    Route::middleware('check_license')->group(function () {
+        Route::apiResource('conversations', ConversationController::class);
+        Route::post('conversations/{conversation}/messages', [MessageController::class, 'send'])->middleware('throttle:60,1');
+        Route::get('conversations/{conversation}/messages',  [ConversationController::class, 'messages']);
+        Route::get('conversations/{conversation}/export',    [ConversationController::class, 'export']);
+    });
 
     // AI Providers
     Route::apiResource('providers', AiProviderController::class);
@@ -64,6 +68,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Push notifications — device token registration
     Route::post('/device-tokens',   [DeviceTokenController::class, 'store']);
     Route::delete('/device-tokens', [DeviceTokenController::class, 'destroy']);
+
+    // License (user-facing)
+    Route::get('/license/status',   [LicenseController::class, 'status']);
+    Route::post('/license/request', [LicenseController::class, 'submitRequest']);
 });
 
 // Admin routes
@@ -77,4 +85,16 @@ Route::middleware(['auth:sanctum', 'is_admin'])
         Route::get('/memory',                           [AdminController::class, 'globalMemory']);
         Route::get('/insights',                         [AdminController::class, 'insights']);
         Route::post('/app/version',                     [AppVersionController::class, 'store']);
+
+        // License management
+        Route::get('/license/settings',                           [AdminLicenseController::class, 'settings']);
+        Route::put('/license/settings',                           [AdminLicenseController::class, 'updateSettings']);
+        Route::get('/license/summary',                            [AdminLicenseController::class, 'summary']);
+        Route::get('/licenses',                                   [AdminLicenseController::class, 'index']);
+        Route::post('/licenses',                                  [AdminLicenseController::class, 'store']);
+        Route::post('/licenses/{license}/revoke',                 [AdminLicenseController::class, 'revoke']);
+        Route::post('/licenses/{license}/renew',                  [AdminLicenseController::class, 'renew']);
+        Route::get('/license-requests',                           [AdminLicenseController::class, 'requests']);
+        Route::post('/license-requests/{licenseRequest}/accept',  [AdminLicenseController::class, 'acceptRequest']);
+        Route::post('/license-requests/{licenseRequest}/reject',  [AdminLicenseController::class, 'rejectRequest']);
     });

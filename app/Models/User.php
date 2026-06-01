@@ -67,4 +67,24 @@ class User extends Authenticatable
     {
         return $this->aiProviders()->where('is_default', true)->where('is_active', true)->first();
     }
+
+    public function license(): HasOne
+    {
+        return $this->hasOne(License::class)->latestOfMany();
+    }
+
+    public function licenses(): HasMany
+    {
+        return $this->hasMany(License::class);
+    }
+
+    public function licenseRequests(): HasMany
+    {
+        return $this->hasMany(LicenseRequest::class);
+    }
+
+    public function hasActiveLicense(): bool
+    {
+        return $this->licenses()->active()->exists();
+    }
 }
