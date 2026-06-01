@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\LicenseActivatedMail;
 use App\Models\License;
 use App\Models\LicenseRequest;
 use App\Models\LicenseSetting;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 
 class AdminLicenseController extends Controller
 {
@@ -184,8 +186,22 @@ class AdminLicenseController extends Controller
             ]);
         }
 
+        // Enviar email de confirmación con detalles de la licencia
+        if ($license) {
+            try {
+                Mail::to($licenseRequest->email)
+                    ->send(new LicenseActivatedMail($license, $licenseRequest));
+            } catch (\Throwable $e) {
+                \Log::warning('Error enviando email de licencia activada', [
+                    'request_id' => $licenseRequest->id,
+                    'email'      => $licenseRequest->email,
+                    'error'      => $e->getMessage(),
+                ]);
+            }
+        }
+
         return response()->json([
-            'message' => 'Solicitud aceptada' . ($license ? ' y licencia creada.' : '.'),
+            'message' => 'Solicitud aceptada' . ($license ? ', licencia creada y email enviado.' : '.'),
             'request' => $licenseRequest->fresh(),
             'license' => $license,
         ]);
