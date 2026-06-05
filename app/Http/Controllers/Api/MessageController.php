@@ -233,7 +233,7 @@ PROMPT;
 
         // Route to appropriate AI provider - return friendly errors for setup issues
         try {
-            $provider = $this->router->forUser($user, $data['provider'] ?? null);
+            $provider = $this->router->forUser($user, $data['provider'] ?? null, $data['content']);
         } catch (\RuntimeException $e) {
             return response()->json([
                 'error'  => 'no_provider',

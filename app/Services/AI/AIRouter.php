@@ -23,7 +23,7 @@ class AIRouter
         'mistral'  => MistralProvider::class,
     ];
 
-    public function forUser(User $user, ?string $preferredProvider = null): BaseProvider
+    public function forUser(User $user, ?string $preferredProvider = null, ?string $content = null): BaseProvider
     {
         $providers = $user->aiProviders()
             ->where('is_active', true)
@@ -43,10 +43,10 @@ class AIRouter
             }
         }
 
-        // Apply routing rules from user settings
+        // Apply routing rules from user settings (needs the message content to classify the task)
         $settings = $user->setting;
         if ($settings?->routing_rules) {
-            $routed = $this->applyRoutingRules($providers, $settings->routing_rules);
+            $routed = $this->applyRoutingRules($providers, $settings->routing_rules, $content);
             if ($routed) {
                 return $this->buildProvider($routed);
             }
@@ -111,10 +111,92 @@ class AIRouter
         );
     }
 
-    private function applyRoutingRules(mixed $providers, array $rules): ?AiProvider
+    /**
+     * Selecciona un proveedor según reglas de enrutamiento por tipo de tarea.
+     *
+     * Reglas: [{"task": "code", "provider": "openai"}, {"task": "chat", "provider": "gemini"}]
+     * Clasifica el contenido del usuario en una categoría y devuelve el proveedor
+     * configurado para esa categoría (si el usuario lo tiene activo). Devuelve null
+     * para caer al proveedor por defecto cuando no hay contenido, no hay regla que
+     * aplique, o el proveedor de la regla no está disponible.
+     */
+    private function applyRoutingRules(mixed $providers, array $rules, ?string $content): ?AiProvider
     {
-        // Rules example: [{"task": "code", "provider": "openai"}, {"task": "analysis", "provider": "claude"}]
-        // For now returns null — to be extended with task classification
+        if ($content === null || trim($content) === '' || empty($rules)) {
+            return null;
+        }
+
+        $task = $this->classifyTask($content);
+
+        foreach ($rules as $rule) {
+            if (($rule['task'] ?? null) !== $task) {
+                continue;
+            }
+
+            $providerName = $rule['provider'] ?? null;
+            if (! $providerName) {
+                continue;
+            }
+
+            $match = $providers->firstWhere('provider', $providerName);
+            if ($match) {
+                return $match;
+            }
+        }
+
         return null;
+    }
+
+    /**
+     * Clasifica el contenido del usuario en una categoría de tarea para enrutamiento.
+     *
+     * Heurística determinista (sin llamadas a IA): rápida, gratis y fácil de testear.
+     * Categorías: 'code', 'analysis', 'chat', 'general'.
+     */
+    public function classifyTask(string $content): string
+    {
+        // Bloques de código → claramente programación
+        if (str_contains($content, '```')) {
+            return 'code';
+        }
+
+        $text = mb_strtolower(trim($content));
+        $len  = mb_strlen($text);
+
+        $codeSignals = [
+            'función', 'funcion', 'function', 'código', 'codigo', 'compil',
+            'stacktrace', 'stack trace', 'excepción', 'excepcion', 'regex',
+            'sql', 'select ', 'php', 'python', 'javascript', 'typescript',
+            'kotlin', 'laravel', 'react', 'docker', 'endpoint', 'bug',
+            'depura', 'debug', 'refactor', 'algoritmo', 'npm', 'composer', 'git ',
+        ];
+        foreach ($codeSignals as $kw) {
+            if (str_contains($text, $kw)) {
+                return 'code';
+            }
+        }
+
+        $analysisSignals = [
+            'analiza', 'análisis', 'analisis', 'compara', 'comparación', 'comparacion',
+            'resume', 'resumen', 'detalladamente', 'en detalle', 'ensayo', 'estrategia',
+            'investiga', 'pros y contras', 'ventajas y desventajas', 'evalúa', 'evalua', 'razona',
+        ];
+        foreach ($analysisSignals as $kw) {
+            if (str_contains($text, $kw)) {
+                return 'analysis';
+            }
+        }
+
+        // Textos largos suelen requerir más razonamiento
+        if ($len > 600) {
+            return 'analysis';
+        }
+
+        // Mensajes cortos y conversacionales (típico de modo voz) → modelo rápido/barato
+        if ($len <= 80) {
+            return 'chat';
+        }
+
+        return 'general';
     }
 }

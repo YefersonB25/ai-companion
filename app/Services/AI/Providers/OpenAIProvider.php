@@ -29,6 +29,28 @@ class OpenAIProvider extends BaseProvider
         return ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'o1', 'o1-mini'];
     }
 
+    /**
+     * Convierte el contenido multimodal (formato interno tipo Claude) al formato
+     * de OpenAI. Los mensajes de solo texto se dejan intactos.
+     *
+     *   {type:image, source:{type:url, url}} → {type:image_url, image_url:{url}}
+     */
+    private function normalizeMessages(array $messages): array
+    {
+        return array_map(function ($m) {
+            if (! is_array($m['content'] ?? null)) {
+                return $m;
+            }
+            $m['content'] = array_map(function ($part) {
+                if (($part['type'] ?? null) === 'image' && isset($part['source']['url'])) {
+                    return ['type' => 'image_url', 'image_url' => ['url' => $part['source']['url']]];
+                }
+                return $part; // {type:text, text:...} ya es válido en OpenAI
+            }, $m['content']);
+            return $m;
+        }, $messages);
+    }
+
     public function chat(array $messages, array $options = []): array
     {
         $start = microtime(true);
@@ -36,7 +58,7 @@ class OpenAIProvider extends BaseProvider
         $response = Http::withToken($this->apiKey)
             ->post("{$this->baseUrl}/chat/completions", [
                 'model'       => $options['model'] ?? $this->model,
-                'messages'    => $messages,
+                'messages'    => $this->normalizeMessages($messages),
                 'max_tokens'  => $options['max_tokens'] ?? 8096,
                 'temperature' => $options['temperature'] ?? 0.7,
             ]);
@@ -68,7 +90,7 @@ class OpenAIProvider extends BaseProvider
         $response = Http::withToken($this->apiKey)
             ->post("{$this->baseUrl}/chat/completions", [
                 'model'       => $options['model'] ?? $this->model,
-                'messages'    => $messages,
+                'messages'    => $this->normalizeMessages($messages),
                 'tools'       => $tools,
                 'max_tokens'  => $options['max_tokens'] ?? 8096,
                 'temperature' => $options['temperature'] ?? 0.7,
@@ -116,7 +138,7 @@ class OpenAIProvider extends BaseProvider
             ->withOptions(['stream' => true])
             ->post("{$this->baseUrl}/chat/completions", [
                 'model'    => $options['model'] ?? $this->model,
-                'messages' => $messages,
+                'messages' => $this->normalizeMessages($messages),
                 'stream'   => true,
             ]);
 

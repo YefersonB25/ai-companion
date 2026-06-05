@@ -8,6 +8,7 @@ use App\Models\MemoryNode;
 use App\Models\Message;
 use App\Models\User;
 use App\Services\AI\AIRouter;
+use App\Services\AI\PricingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -123,6 +124,106 @@ class AdminController extends Controller
             'memory_by_day'        => $memoryByDay,
             'messages_by_provider' => $messagesByProvider,
         ]);
+    }
+
+    // ─────────────────────────────────────────────
+    // GET /api/admin/usage — costo estimado por proveedor/modelo/usuario
+    // ─────────────────────────────────────────────
+    public function usage(PricingService $pricing): JsonResponse
+    {
+        $payload = cache()->remember('admin:usage', 60, function () use ($pricing) {
+            // Agregado por proveedor + modelo (el precio depende del modelo)
+            $rows = Message::where('role', 'assistant')
+                ->whereNotNull('provider')
+                ->selectRaw('provider, model, COUNT(*) as count, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens')
+                ->groupBy('provider', 'model')
+                ->get();
+
+            $byProvider  = [];
+            $byModel     = [];
+            $totalCost   = 0.0;
+            $totalInput  = 0;
+            $totalOutput = 0;
+
+            foreach ($rows as $row) {
+                $in   = (int) $row->input_tokens;
+                $out  = (int) $row->output_tokens;
+                $cost = $pricing->costFor($row->model, $in, $out);
+
+                $totalCost   += $cost;
+                $totalInput  += $in;
+                $totalOutput += $out;
+
+                $p = $row->provider;
+                $byProvider[$p] ??= ['provider' => $p, 'count' => 0, 'input_tokens' => 0, 'output_tokens' => 0, 'cost_usd' => 0.0];
+                $byProvider[$p]['count']         += (int) $row->count;
+                $byProvider[$p]['input_tokens']  += $in;
+                $byProvider[$p]['output_tokens'] += $out;
+                $byProvider[$p]['cost_usd']       = round($byProvider[$p]['cost_usd'] + $cost, 4);
+
+                $byModel[] = [
+                    'provider'      => $p,
+                    'model'         => $row->model,
+                    'count'         => (int) $row->count,
+                    'input_tokens'  => $in,
+                    'output_tokens' => $out,
+                    'cost_usd'      => round($cost, 4),
+                ];
+            }
+
+            usort($byModel, fn ($a, $b) => $b['cost_usd'] <=> $a['cost_usd']);
+
+            // Costo diario — últimos 30 días
+            $dailyRows = Message::where('role', 'assistant')
+                ->whereNotNull('provider')
+                ->where('created_at', '>=', now()->subDays(30))
+                ->selectRaw('DATE(created_at) as date, model, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens')
+                ->groupBy('date', 'model')
+                ->get();
+
+            $daily = [];
+            foreach ($dailyRows as $row) {
+                $cost = $pricing->costFor($row->model, (int) $row->input_tokens, (int) $row->output_tokens);
+                $daily[$row->date] = round(($daily[$row->date] ?? 0) + $cost, 4);
+            }
+            ksort($daily);
+            $costByDay = collect($daily)->map(fn ($c, $d) => ['date' => $d, 'cost_usd' => $c])->values()->all();
+
+            // Top usuarios por costo
+            $userRows = Message::where('role', 'assistant')
+                ->whereNotNull('provider')
+                ->selectRaw('user_id, model, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens')
+                ->groupBy('user_id', 'model')
+                ->get();
+
+            $userCost = [];
+            foreach ($userRows as $row) {
+                $cost = $pricing->costFor($row->model, (int) $row->input_tokens, (int) $row->output_tokens);
+                $userCost[$row->user_id] = ($userCost[$row->user_id] ?? 0) + $cost;
+            }
+            arsort($userCost);
+            $topIds = array_slice(array_keys($userCost), 0, 10);
+            $names  = User::whereIn('id', $topIds)->pluck('name', 'id');
+            $topUsers = array_map(fn ($uid) => [
+                'user_id'  => $uid,
+                'name'     => $names[$uid] ?? '—',
+                'cost_usd' => round($userCost[$uid], 4),
+            ], $topIds);
+
+            return [
+                'totals' => [
+                    'cost_usd'      => round($totalCost, 4),
+                    'input_tokens'  => $totalInput,
+                    'output_tokens' => $totalOutput,
+                ],
+                'by_provider' => array_values($byProvider),
+                'by_model'    => $byModel,
+                'cost_by_day' => $costByDay,
+                'top_users'   => $topUsers,
+            ];
+        });
+
+        return response()->json($payload);
     }
 
     // ─────────────────────────────────────────────

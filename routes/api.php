@@ -39,6 +39,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Conversations (license-gated)
     Route::middleware('check_license')->group(function () {
+        // Debe ir ANTES del apiResource para que "search" no se interprete como {conversation}
+        Route::get('conversations/search', [ConversationController::class, 'search']);
         Route::apiResource('conversations', ConversationController::class);
         Route::post('conversations/{conversation}/messages', [MessageController::class, 'send'])->middleware('throttle:60,1');
         Route::get('conversations/{conversation}/messages',  [ConversationController::class, 'messages']);
@@ -81,6 +83,7 @@ Route::middleware(['auth:sanctum', 'is_admin'])
     ->prefix('admin')
     ->group(function () {
         Route::get('/dashboard',                        [AdminController::class, 'dashboard']);
+        Route::get('/usage',                            [AdminController::class, 'usage']);
         Route::get('/users',                            [AdminController::class, 'users']);
         Route::get('/users/{user}',                     [AdminController::class, 'userDetail']);
         Route::post('/users/{user}/toggle-admin',       [AdminController::class, 'toggleAdmin']);
