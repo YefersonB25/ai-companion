@@ -70,6 +70,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // TTS — voz neural premium (Fase 5). Devuelve audio/mpeg.
     Route::post('/tts', TtsController::class)->middleware('throttle:60,1');
+    Route::get('/tts/providers', [TtsController::class, 'providers']);
 
     // Profile
     Route::get('/profile',  [ProfileController::class, 'show']);

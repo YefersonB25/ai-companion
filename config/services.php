@@ -66,8 +66,14 @@ return [
     | el mp3 devuelto por POST /api/tts, reemplazando el TTS robótico del sistema.
     */
     'tts' => [
-        'default'  => env('TTS_PROVIDER', 'elevenlabs'),
+        'default'  => env('TTS_PROVIDER', 'gemini'),
         'fallback' => env('TTS_FALLBACK', 'openai'),
+
+        'gemini' => [
+            'api_key' => env('GEMINI_TTS_API_KEY', env('EMBEDDING_API_KEY')),
+            'model'   => env('GEMINI_TTS_MODEL', 'gemini-2.5-flash-preview-tts'),
+            'voice'   => env('GEMINI_TTS_VOICE', 'Kore'),
+        ],
 
         'elevenlabs' => [
             'api_key'  => env('ELEVENLABS_API_KEY'),

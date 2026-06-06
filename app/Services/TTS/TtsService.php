@@ -4,6 +4,7 @@ namespace App\Services\TTS;
 
 use App\Exceptions\TtsUnavailableException;
 use App\Services\TTS\Providers\ElevenLabsTtsProvider;
+use App\Services\TTS\Providers\GeminiTtsProvider;
 use App\Services\TTS\Providers\OpenAiTtsProvider;
 use Illuminate\Support\Facades\Log;
 
@@ -33,8 +34,12 @@ class TtsService
         $default  = config('services.tts.default', 'elevenlabs');
         $fallback = config('services.tts.fallback', 'openai');
 
-        // Orden de intento: default primero, luego fallback (sin duplicar).
-        $order = array_values(array_unique(array_filter([$default, $fallback])));
+        // Si el usuario forzó un proveedor (desde sus ajustes), va primero;
+        // luego default y fallback como red de seguridad (sin duplicar).
+        $forced = $opts['provider'] ?? null;
+
+        // Orden de intento: forzado → default → fallback (sin duplicar).
+        $order = array_values(array_unique(array_filter([$forced, $default, $fallback])));
 
         $lastError = null;
         $attempted = false;
@@ -90,10 +95,32 @@ class TtsService
         return null;
     }
 
+    /**
+     * Devuelve la lista de nombres de proveedores configurados (con key presente).
+     * Útil para que la UI solo muestre opciones válidas.
+     *
+     * @return array<int, string>
+     */
+    public function availableProviders(): array
+    {
+        $names = ['gemini', 'elevenlabs', 'openai'];
+
+        return array_values(array_filter($names, function (string $name): bool {
+            $provider = $this->resolve($name);
+
+            return $provider && $provider->isConfigured();
+        }));
+    }
+
     /** Construye un proveedor por nombre a partir de su config (factory). */
     private function resolve(string $name): ?TtsProvider
     {
         return match ($name) {
+            'gemini' => new GeminiTtsProvider(
+                config('services.tts.gemini.api_key'),
+                config('services.tts.gemini.model', 'gemini-2.5-flash-preview-tts'),
+                config('services.tts.gemini.voice', 'Kore'),
+            ),
             'elevenlabs' => new ElevenLabsTtsProvider(
                 config('services.tts.elevenlabs.api_key'),
                 config('services.tts.elevenlabs.voice_id', 'EXAVITQu4vr4xnSDxMaL'),

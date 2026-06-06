@@ -13,6 +13,7 @@ class UserSetting extends Model
         'auto_title', 'stream_responses', 'routing_rules', 'persona',
         'briefing_enabled', 'briefing_time', 'briefing_city',
         'calendar_alerts_enabled',
+        'tts_provider', 'tts_voice',
     ];
 
     protected $casts = [

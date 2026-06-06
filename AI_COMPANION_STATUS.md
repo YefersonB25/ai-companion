@@ -48,9 +48,11 @@ php artisan telegram:set-webhook
 DB_CONNECTION=sqlite
 BROADCAST_CONNECTION=reverb
 
-REVERB_APP_ID=633172
-REVERB_APP_KEY=cca9a7413d67828704e7119a2c2fb777
-REVERB_APP_SECRET=23b8f1cbb2ace20dbcc3dc73087a733c77497ac21a67aab5ff4039e3f29087d6
+# ⚠️ NUNCA pegar valores reales de secretos aquí — solo nombres de variables.
+# Los valores reales viven SOLO en el .env (gitignored). Ver .env.example.
+REVERB_APP_ID=<reverb-app-id>
+REVERB_APP_KEY=<reverb-app-key>
+REVERB_APP_SECRET=<reverb-app-secret>
 REVERB_HOST=localhost
 REVERB_PORT=8080
 REVERB_SCHEME=http
@@ -61,10 +63,10 @@ QDRANT_COLLECTION=ai_companion_memories
 EMBEDDING_PROVIDER=gemini
 EMBEDDING_MODEL=gemini-embedding-001
 EMBEDDING_DIMENSIONS=3072
-EMBEDDING_API_KEY=AIzaSyBsdEPvdl1ah1WY_pwt8VStTx-46W8--ek
+EMBEDDING_API_KEY=<gemini-api-key>
 
-TELEGRAM_BOT_TOKEN=8806628995:AAHY4lRoKIMO_qANqjvXJaCC7rzFFNeW_qw
-TELEGRAM_WEBHOOK_URL=https://polypoid-simon-preintimately.ngrok-free.dev/api/telegram/webhook
+TELEGRAM_BOT_TOKEN=<telegram-bot-token>
+TELEGRAM_WEBHOOK_URL=<telegram-webhook-url>
 ```
 
 ---

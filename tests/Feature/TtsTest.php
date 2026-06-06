@@ -24,6 +24,11 @@ class TtsTest extends TestCase
 
         config()->set('services.tts.default', 'elevenlabs');
         config()->set('services.tts.fallback', 'openai');
+        config()->set('services.tts.gemini', [
+            'api_key' => 'ge-test-key',
+            'model'   => 'gemini-2.5-flash-preview-tts',
+            'voice'   => 'Kore',
+        ]);
         config()->set('services.tts.elevenlabs', [
             'api_key'  => 'el-test-key',
             'voice_id' => 'voice-xyz',
@@ -130,5 +135,141 @@ class TtsTest extends TestCase
     public function test_requires_authentication(): void
     {
         $this->postJson('/api/tts', ['text' => 'Hola'])->assertStatus(401);
+    }
+
+    public function test_gemini_provider_wraps_pcm_in_wav(): void
+    {
+        // PCM crudo de ejemplo (no es relevante el contenido).
+        $pcm     = str_repeat("\x01\x02", 100);
+        $b64      = base64_encode($pcm);
+
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [[
+                        'inlineData' => [
+                            'mimeType' => 'audio/L16;rate=24000',
+                            'data'     => $b64,
+                        ],
+                    ]]],
+                ]],
+            ], 200),
+        ]);
+
+        $provider = new \App\Services\TTS\Providers\GeminiTtsProvider('ge-test-key');
+        $wav = $provider->synthesize('Hola Aria');
+
+        // Empieza con la firma RIFF y contiene WAVE.
+        $this->assertSame('RIFF', substr($wav, 0, 4));
+        $this->assertSame('WAVE', substr($wav, 8, 4));
+
+        // Sample rate del header (offset 24, little-endian uint32) = 24000.
+        $sampleRate = unpack('V', substr($wav, 24, 4))[1];
+        $this->assertSame(24000, $sampleRate);
+    }
+
+    public function test_user_provider_gemini_uses_gemini(): void
+    {
+        $pcm = str_repeat("\x00\x01", 50);
+
+        Http::fake([
+            'generativelanguage.googleapis.com/*' => Http::response([
+                'candidates' => [[
+                    'content' => ['parts' => [[
+                        'inlineData' => [
+                            'mimeType' => 'audio/L16;rate=24000',
+                            'data'     => base64_encode($pcm),
+                        ],
+                    ]]],
+                ]],
+            ], 200),
+        ]);
+
+        $user = User::factory()->create();
+        $user->setting()->create([
+            'user_id'      => $user->id,
+            'tts_provider' => 'gemini',
+        ]);
+
+        $res = $this->actingAs($user)->postJson('/api/tts', ['text' => 'Hola Aria']);
+
+        $res->assertStatus(200);
+        $this->assertSame('RIFF', substr($res->getContent(), 0, 4));
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'generativelanguage.googleapis.com'));
+    }
+
+    public function test_user_provider_elevenlabs_uses_elevenlabs(): void
+    {
+        $fakeMp3 = 'EL_USER_MP3';
+
+        Http::fake([
+            'api.elevenlabs.io/*'                  => Http::response($fakeMp3, 200, ['Content-Type' => 'audio/mpeg']),
+            'generativelanguage.googleapis.com/*'  => Http::response('should-not-be-called', 200),
+        ]);
+
+        $user = User::factory()->create();
+        $user->setting()->create([
+            'user_id'      => $user->id,
+            'tts_provider' => 'elevenlabs',
+        ]);
+
+        $res = $this->actingAs($user)->postJson('/api/tts', ['text' => 'Buenos días']);
+
+        $res->assertStatus(200);
+        $this->assertSame($fakeMp3, $res->getContent());
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), 'api.elevenlabs.io'));
+    }
+
+    public function test_forced_provider_not_configured_falls_back(): void
+    {
+        // El usuario eligió gemini, pero no hay key de gemini → cae al default/fallback.
+        config()->set('services.tts.gemini.api_key', '');
+
+        $fakeMp3 = 'FALLBACK_MP3';
+
+        Http::fake([
+            'api.elevenlabs.io/*' => Http::response($fakeMp3, 200, ['Content-Type' => 'audio/mpeg']),
+        ]);
+
+        $user = User::factory()->create();
+        $user->setting()->create([
+            'user_id'      => $user->id,
+            'tts_provider' => 'gemini',
+        ]);
+
+        $res = $this->actingAs($user)->postJson('/api/tts', ['text' => 'Hola']);
+
+        $res->assertStatus(200);
+        $this->assertSame($fakeMp3, $res->getContent());
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), 'generativelanguage.googleapis.com'));
+    }
+
+    public function test_providers_endpoint_lists_only_configured(): void
+    {
+        // Sin key de openai → no debe aparecer.
+        config()->set('services.tts.openai.api_key', '');
+        config()->set('services.tts.default', 'gemini');
+
+        $user = User::factory()->create();
+        $user->setting()->create([
+            'user_id'      => $user->id,
+            'tts_provider' => 'gemini',
+        ]);
+
+        $res = $this->actingAs($user)->getJson('/api/tts/providers');
+
+        $res->assertStatus(200);
+        $res->assertJson([
+            'providers' => ['gemini', 'elevenlabs'],
+            'default'   => 'gemini',
+            'selected'  => 'gemini',
+        ]);
+    }
+
+    public function test_providers_endpoint_requires_authentication(): void
+    {
+        $this->getJson('/api/tts/providers')->assertStatus(401);
     }
 }

@@ -31,6 +31,8 @@ class SettingController extends Controller
             'briefing_time'    => 'nullable|string|regex:/^\d{2}:\d{2}$/',
             'briefing_city'    => 'nullable|string|max:100',
             'calendar_alerts_enabled' => 'nullable|boolean',
+            'tts_provider'     => 'nullable|string|in:gemini,elevenlabs,openai',
+            'tts_voice'        => 'nullable|string|max:100',
         ]);
 
         $request->user()->setting()->updateOrCreate(

@@ -26,8 +26,20 @@ class TtsController extends Controller
             'voice' => 'nullable|string|max:100',
         ]);
 
+        // Preferencias del usuario (ajustes): proveedor y voz elegidos.
+        $setting  = $request->user()?->setting;
+        $provider = $setting?->tts_provider;
+        $voice    = $data['voice'] ?? $setting?->tts_voice;
+
+        $opts = [];
+        if (! empty($provider)) {
+            $opts['provider'] = $provider;
+        }
+        if (! empty($voice)) {
+            $opts['voice'] = $voice;
+        }
+
         try {
-            $opts  = isset($data['voice']) ? ['voice' => $data['voice']] : [];
             $audio = $this->tts->synthesize($data['text'], $opts);
         } catch (TtsUnavailableException $e) {
             return response()->json([
@@ -38,5 +50,20 @@ class TtsController extends Controller
         return response($audio, 200)
             ->header('Content-Type', 'audio/mpeg')
             ->header('Content-Disposition', 'inline; filename="speech.mp3"');
+    }
+
+    /**
+     * GET /api/tts/providers — proveedores de TTS configurados (con key presente).
+     *
+     * Permite a la UI mostrar solo opciones válidas, el default global y la
+     * selección actual del usuario.
+     */
+    public function providers(Request $request): JsonResponse
+    {
+        return response()->json([
+            'providers' => $this->tts->availableProviders(),
+            'default'   => config('services.tts.default', 'gemini'),
+            'selected'  => $request->user()?->setting?->tts_provider,
+        ]);
     }
 }
