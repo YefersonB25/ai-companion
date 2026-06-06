@@ -56,8 +56,19 @@ class AdminController extends Controller
                 ->selectRaw('SUM(input_tokens) as total_input, SUM(output_tokens) as total_output')
                 ->first();
 
+            // Crecimiento de usuarios: nuevos este mes vs el mes anterior (%)
+            $usersThisMonth = User::where('created_at', '>=', now()->startOfMonth())->count();
+            $usersLastMonth = User::whereBetween('created_at', [
+                now()->subMonthNoOverflow()->startOfMonth(),
+                now()->startOfMonth(),
+            ])->count();
+            $userGrowth = $usersLastMonth > 0
+                ? (int) round((($usersThisMonth - $usersLastMonth) / $usersLastMonth) * 100)
+                : ($usersThisMonth > 0 ? 100 : 0);
+
             return [
                 'total_users'            => $totalUsers,
+                'user_growth'            => $userGrowth,
                 'active_today'           => $activeToday,
                 'active_week'            => $activeWeek,
                 'messages_today'         => $messagesToday,
