@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AdminController;
 use App\Http\Controllers\Api\AdminLicenseController;
 use App\Http\Controllers\Api\AiProviderController;
+use App\Http\Controllers\Api\Admin\SecretRegistryController;
 use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BriefingController;
@@ -117,4 +118,10 @@ Route::middleware(['auth:sanctum', 'is_admin'])
         Route::get('/license-requests',                           [AdminLicenseController::class, 'requests']);
         Route::post('/license-requests/{licenseRequest}/accept',  [AdminLicenseController::class, 'acceptRequest']);
         Route::post('/license-requests/{licenseRequest}/reject',  [AdminLicenseController::class, 'rejectRequest']);
+
+        // Registro de secretos (DOCUMENTACIÓN — sin valores). Solo metadatos;
+        // `configured`/`last4` se calculan al vuelo. El valor nunca se guarda ni se devuelve.
+        Route::apiResource('secrets', SecretRegistryController::class)
+            ->parameters(['secrets' => 'secretRegistry'])
+            ->except(['show']);
     });
