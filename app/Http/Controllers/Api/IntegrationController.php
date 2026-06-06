@@ -38,8 +38,12 @@ class IntegrationController extends Controller
      */
     public function googleConnect(Request $request): JsonResponse
     {
+        // 'return=app' → tras el callback se vuelve a la app por deep link (conectar
+        // desde el móvil sin pasar por el login web). Por defecto 'web' (panel).
+        $returnTo = $request->query('return') === 'app' ? 'app' : 'web';
+
         return response()->json([
-            'url' => $this->google->getAuthUrl($request->user()),
+            'url' => $this->google->getAuthUrl($request->user(), $returnTo),
         ]);
     }
 
@@ -70,7 +74,7 @@ class IntegrationController extends Controller
         ]);
 
         try {
-            $this->google->handleCallback($data['code'], $data['state']);
+            ['return' => $returnTo] = $this->google->handleCallback($data['code'], $data['state']);
         } catch (\Throwable $e) {
             // No reflejamos el mensaje de la excepción en la URL; solo un código genérico.
             Log::warning('GoogleOAuthService: fallo en callback OAuth.', [
@@ -78,6 +82,12 @@ class IntegrationController extends Controller
             ]);
 
             return redirect()->away($settingsUrl . '?google=error&code=oauth_failed');
+        }
+
+        // Si la conexión nació en el móvil ('return=app'), volvemos a la app por deep
+        // link; si no, al panel web. Así conectar desde el móvil no exige login web.
+        if ($returnTo === 'app') {
+            return redirect()->away('ai-companion://oauth?google=connected');
         }
 
         return redirect()->away($settingsUrl . '?google=connected');

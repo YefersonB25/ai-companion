@@ -29,8 +29,11 @@ class GoogleOAuthService
 
     /**
      * Construye la URL de consentimiento de Google ligada al usuario.
+     *
+     * $returnTo indica a dónde redirigir tras el callback: 'web' (panel) o 'app'
+     * (deep link al móvil, para conectar desde la app sin pasar por el login web).
      */
-    public function getAuthUrl(User $user): string
+    public function getAuthUrl(User $user, string $returnTo = 'web'): string
     {
         $params = [
             'client_id'     => (string) config('services.google.client_id'),
@@ -40,7 +43,7 @@ class GoogleOAuthService
             'access_type'   => 'offline',     // necesario para recibir refresh_token
             'prompt'        => 'consent',     // fuerza a Google a re-emitir refresh_token
             'include_granted_scopes' => 'true',
-            'state'         => $this->makeState($user),
+            'state'         => $this->makeState($user, $returnTo),
         ];
 
         return self::AUTH_URL . '?' . http_build_query($params);
@@ -50,9 +53,9 @@ class GoogleOAuthService
      * Intercambia el authorization code por tokens, resuelve el email de la
      * cuenta y persiste (updateOrCreate) el UserIntegration.
      */
-    public function handleCallback(string $code, string $state): UserIntegration
+    public function handleCallback(string $code, string $state): array
     {
-        $user = $this->resolveUserFromState($state);
+        ['user' => $user, 'return' => $returnTo] = $this->resolveStateData($state);
 
         $response = Http::asForm()->post(self::TOKEN_URL, [
             'code'          => $code,
@@ -91,10 +94,12 @@ class GoogleOAuthService
             $attributes['refresh_token'] = $tokens['refresh_token'];
         }
 
-        return UserIntegration::updateOrCreate(
+        $integration = UserIntegration::updateOrCreate(
             ['user_id' => $user->id, 'provider' => self::PROVIDER],
             $attributes,
         );
+
+        return ['integration' => $integration, 'return' => $returnTo];
     }
 
     /**
@@ -183,13 +188,13 @@ class GoogleOAuthService
      * atacante no puede fabricar/compartir un state para atar su cuenta Google a
      * otro usuario, y el nonce expira y se consume una sola vez (anti-replay).
      */
-    private function makeState(User $user): string
+    private function makeState(User $user, string $returnTo = 'web'): string
     {
         $nonce = Str::random(40);
 
         Cache::put(
             self::STATE_CACHE_PREFIX . $nonce,
-            $user->id,
+            ['uid' => $user->id, 'return' => $returnTo === 'app' ? 'app' : 'web'],
             now()->addMinutes(self::STATE_TTL_MINUTES),
         );
 
@@ -197,9 +202,12 @@ class GoogleOAuthService
     }
 
     /**
-     * Valida el state, lo consume (single-use) y devuelve el usuario al que pertenece.
+     * Valida el state, lo consume (single-use) y devuelve el usuario y el destino
+     * de retorno ('web' | 'app') al que pertenece.
+     *
+     * @return array{user: User, return: string}
      */
-    private function resolveUserFromState(string $state): User
+    private function resolveStateData(string $state): array
     {
         try {
             $nonce = decrypt($state);
@@ -208,15 +216,16 @@ class GoogleOAuthService
         }
 
         // pull() consume el nonce: expira tras un uso (anti-replay).
-        $userId = Cache::pull(self::STATE_CACHE_PREFIX . $nonce);
+        $data = Cache::pull(self::STATE_CACHE_PREFIX . $nonce);
 
-        $user = $userId ? User::find($userId) : null;
+        $userId = is_array($data) ? ($data['uid'] ?? null) : $data; // compat estados viejos
+        $user   = $userId ? User::find($userId) : null;
 
         if (! $user) {
             throw new RuntimeException('State OAuth inválido, expirado o ya usado.');
         }
 
-        return $user;
+        return ['user' => $user, 'return' => (is_array($data) && ($data['return'] ?? null) === 'app') ? 'app' : 'web'];
     }
 
     private function fail(string $stage, int $status, string $body): void

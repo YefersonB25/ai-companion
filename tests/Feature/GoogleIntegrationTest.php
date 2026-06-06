@@ -179,6 +179,34 @@ class GoogleIntegrationTest extends TestCase
         $this->assertStringNotContainsString('message=', $location);
     }
 
+    public function test_mobile_flow_returns_to_app_deep_link(): void
+    {
+        $user = User::factory()->create();
+
+        Http::fake([
+            'oauth2.googleapis.com/token' => Http::response([
+                'access_token'  => 'ya29.tok',
+                'refresh_token' => '1//ref',
+                'expires_in'    => 3600,
+                'token_type'    => 'Bearer',
+            ], 200),
+            'www.googleapis.com/oauth2/v2/userinfo' => Http::response(['email' => 'user@gmail.com'], 200),
+        ]);
+
+        // El móvil pide la URL con return=app (autenticado con su token).
+        $authUrl = $this->actingAs($user)
+            ->getJson('/api/integrations/google/connect?return=app')
+            ->assertOk()
+            ->json('url');
+        parse_str(parse_url($authUrl, PHP_URL_QUERY), $params);
+
+        // El callback (público) debe volver a la app por deep link, no a la web.
+        $res = $this->get('/api/integrations/google/callback?code=abc&state=' . urlencode($params['state']));
+        $res->assertRedirect();
+        $this->assertStringStartsWith('ai-companion://oauth?google=connected', (string) $res->headers->get('Location'));
+        $this->assertDatabaseHas('user_integrations', ['user_id' => $user->id, 'provider' => 'google']);
+    }
+
     public function test_disconnect_removes_integration(): void
     {
         $user = User::factory()->create();
