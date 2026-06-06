@@ -63,6 +63,16 @@ class User extends Authenticatable
         return $this->hasMany(DeviceToken::class);
     }
 
+    public function proactiveLogs(): HasMany
+    {
+        return $this->hasMany(ProactiveLog::class);
+    }
+
+    public function integrations(): HasMany
+    {
+        return $this->hasMany(UserIntegration::class);
+    }
+
     public function defaultProvider(): ?AiProvider
     {
         return $this->aiProviders()->where('is_default', true)->where('is_active', true)->first();

@@ -26,7 +26,7 @@ class GeminiProvider extends BaseProvider
 
     public function getSupportedModels(): array
     {
-        return ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro'];
+        return ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-001', 'gemini-1.5-pro'];
     }
 
     /** Construye el payload de Gemini (contents + systemInstruction) desde los mensajes. */
@@ -66,13 +66,116 @@ class GeminiProvider extends BaseProvider
         $data = $response->json();
         $usage = $data['usageMetadata'] ?? [];
 
+        // Extracción defensiva: concatena todas las partes `text` (igual que
+        // chatWithTools). La respuesta puede no traer parte `text` (otra
+        // functionCall, finishReason SAFETY/MAX_TOKENS sin parts, o sin
+        // candidates si quedó bloqueada) y un acceso directo reventaría.
+        $parts = $data['candidates'][0]['content']['parts'] ?? [];
+        $text  = implode('', array_map(fn($p) => $p['text'] ?? '', $parts));
+
         return $this->buildResponse(
-            $data['candidates'][0]['content']['parts'][0]['text'],
+            $text,
             $model,
             $usage['promptTokenCount'] ?? 0,
             $usage['candidatesTokenCount'] ?? 0,
             (int) ((microtime(true) - $start) * 1000)
         );
+    }
+
+    public function supportsTools(): bool
+    {
+        return true;
+    }
+
+    public function chatWithTools(array $messages, array $tools, array $options = []): array
+    {
+        $start = microtime(true);
+        $model = $options['model'] ?? $this->model;
+
+        $payload          = $this->buildPayload($messages);
+        $payload['tools'] = $tools;
+
+        $response = Http::post(
+            "{$this->baseUrl}/models/{$model}:generateContent?key={$this->apiKey}",
+            $payload
+        );
+
+        if ($response->failed()) {
+            throw new RuntimeException("Gemini API error: " . $response->body());
+        }
+
+        $data    = $response->json();
+        $usage   = $data['usageMetadata'] ?? [];
+        $parts   = $data['candidates'][0]['content']['parts'] ?? [];
+        $latency = (int) ((microtime(true) - $start) * 1000);
+
+        // Collect any functionCall parts (Gemini may emit several at once).
+        $functionCalls = [];
+        foreach ($parts as $part) {
+            if (isset($part['functionCall'])) {
+                $functionCalls[] = $part['functionCall'];
+            }
+        }
+
+        if (! empty($functionCalls)) {
+            $toolCalls    = [];
+            $assistantContent = [];
+            foreach ($functionCalls as $i => $fc) {
+                $toolCalls[] = [
+                    'id'    => "call_{$i}",
+                    'name'  => $fc['name'] ?? '',
+                    'input' => $fc['args'] ?? [],
+                ];
+                // Stash the raw Gemini part so toParts() can re-emit it verbatim.
+                $assistantContent[] = ['functionCall' => [
+                    'name' => $fc['name'] ?? '',
+                    'args' => empty($fc['args']) ? new \stdClass() : $fc['args'],
+                ]];
+            }
+
+            return [
+                'type'               => 'tool_use',
+                'tool_calls'         => $toolCalls,
+                'messages_to_append' => [
+                    ['role' => 'assistant', 'content' => $assistantContent],
+                ],
+            ];
+        }
+
+        // Plain text response — same shape as chat() + type.
+        $text = '';
+        foreach ($parts as $part) {
+            $text .= $part['text'] ?? '';
+        }
+
+        return array_merge(
+            $this->buildResponse(
+                $text,
+                $model,
+                $usage['promptTokenCount'] ?? 0,
+                $usage['candidatesTokenCount'] ?? 0,
+                $latency
+            ),
+            ['type' => 'text']
+        );
+    }
+
+    /**
+     * Build the internal tool-result message the loop appends. For Gemini the
+     * result is a `user` content with a `functionResponse` part; toParts()
+     * forwards it verbatim.
+     */
+    public function buildToolResultMessage(array $toolCall, string $result): array
+    {
+        return [
+            'role'    => 'user',
+            'content' => [
+                ['functionResponse' => [
+                    'name'     => $toolCall['name'],
+                    'response' => ['result' => $result],
+                ]],
+            ],
+        ];
     }
 
     public function stream(array $messages, array $options = []): Generator
@@ -136,6 +239,13 @@ class GeminiProvider extends BaseProvider
 
         $parts = [];
         foreach ($content as $part) {
+            // Raw Gemini parts (function calling) are forwarded verbatim so the
+            // tool-use round-trip survives buildPayload().
+            if (isset($part['functionCall']) || isset($part['functionResponse'])) {
+                $parts[] = $part;
+                continue;
+            }
+
             $type = $part['type'] ?? null;
 
             if ($type === 'text') {

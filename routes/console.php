@@ -16,3 +16,6 @@ Schedule::command('aria:proactive')->dailyAt('09:00');
 
 // Fix #2/#10: auto-expirar licencias vencidas cada hora
 Schedule::command('licenses:expire')->hourly();
+
+// P-04: disparadores por proximidad temporal de eventos de calendario
+Schedule::command('aria:calendar-triggers')->everyFiveMinutes()->withoutOverlapping();

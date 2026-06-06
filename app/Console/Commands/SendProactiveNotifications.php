@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Models\ProactiveLog;
 use App\Models\User;
 use App\Services\AI\AIRouter;
 use App\Services\PushNotificationService;
@@ -54,11 +55,10 @@ class SendProactiveNotifications extends Command
                             return "- [{$label}]: {$content}";
                         })->implode("\n");
 
-                        $prompt = "Today is {$today}. Here are facts about the user:\n{$memorySummary}\n\n"
-                            . "Based on this, generate ONE brief, helpful proactive message to send as a push notification. "
-                            . "It should be relevant to today (check for upcoming events, habits, goals). "
-                            . "If nothing relevant, return empty string. "
-                            . "Return ONLY the message text in Spanish, max 80 characters, or empty string.";
+                        // Memoria de corto plazo: mensajes proactivos recientes para no repetir
+                        $recent = ProactiveLog::recentMessagesFor($user, ProactiveLog::TYPE_PROACTIVE);
+
+                        $prompt = $this->buildPrompt($today, $memorySummary, $recent->all());
 
                         $messages = [
                             ['role' => 'user', 'content' => $prompt],
@@ -84,6 +84,12 @@ class SendProactiveNotifications extends Command
                         $push->notifyUser($user, 'Aria 🤖', $message);
                         $notificationsSent++;
 
+                        // Registrar el envío para la memoria de corto plazo
+                        $user->proactiveLogs()->create([
+                            'type'    => ProactiveLog::TYPE_PROACTIVE,
+                            'message' => $message,
+                        ]);
+
                         $this->info("  → {$user->name}: \"{$message}\"");
                     } catch (\Throwable $e) {
                         $this->warn("  ✗ {$user->name}: {$e->getMessage()}");
@@ -105,5 +111,33 @@ class SendProactiveNotifications extends Command
         ]);
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Construye el prompt del mensaje proactivo, inyectando los mensajes
+     * recientes ya enviados para evitar repeticiones (memoria de corto plazo).
+     *
+     * @param  array<int, string>  $recentMessages
+     */
+    public function buildPrompt(string $today, string $memorySummary, array $recentMessages = []): string
+    {
+        $prompt = "Today is {$today}. Here are facts about the user:\n{$memorySummary}\n\n";
+
+        if (! empty($recentMessages)) {
+            $recentBlock = collect($recentMessages)
+                ->map(fn ($m) => "- {$m}")
+                ->implode("\n");
+
+            $prompt .= "Mensajes proactivos que YA enviaste recientemente "
+                . "(NO los repitas ni digas algo casi idéntico; aporta algo nuevo y distinto):\n"
+                . "{$recentBlock}\n\n";
+        }
+
+        $prompt .= "Based on this, generate ONE brief, helpful proactive message to send as a push notification. "
+            . "It should be relevant to today (check for upcoming events, habits, goals). "
+            . "If nothing relevant, return empty string. "
+            . "Return ONLY the message text in Spanish, max 80 characters, or empty string.";
+
+        return $prompt;
     }
 }

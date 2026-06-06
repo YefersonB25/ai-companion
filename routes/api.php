@@ -8,11 +8,13 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BriefingController;
 use App\Http\Controllers\Api\ConversationController;
 use App\Http\Controllers\Api\DeviceTokenController;
+use App\Http\Controllers\Api\IntegrationController;
 use App\Http\Controllers\Api\LicenseController;
 use App\Http\Controllers\Api\MemoryController;
 use App\Http\Controllers\Api\MessageController;
 use App\Http\Controllers\Api\ProfileController;
 use App\Http\Controllers\Api\SettingController;
+use App\Http\Controllers\Api\TtsController;
 use App\Http\Controllers\Telegram\WebhookController;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Route;
@@ -29,6 +31,9 @@ Route::post('/auth/login',    [AuthController::class, 'login'])->middleware('thr
 Route::get('/providers/supported', [AiProviderController::class, 'supportedProviders']);
 Route::get('/app/version', [AppVersionController::class, 'check']);
 Route::get('/license/whatsapp/{licenseRequest}/{plan}', [LicenseController::class, 'whatsappRedirect']);
+// OAuth callback: lo invoca el navegador vía redirect de Google, SIN token Sanctum.
+// El usuario se identifica por el `state` firmado (user_id cifrado), no por la sesión.
+Route::get('/integrations/google/callback', [IntegrationController::class, 'googleCallback']);
 
 // Authenticated
 Route::middleware('auth:sanctum')->group(function () {
@@ -63,6 +68,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Briefing on-demand (mobile fetches this for local notification)
     Route::get('/briefing/today', [BriefingController::class, 'today']);
 
+    // TTS — voz neural premium (Fase 5). Devuelve audio/mpeg.
+    Route::post('/tts', TtsController::class)->middleware('throttle:60,1');
+
     // Profile
     Route::get('/profile',  [ProfileController::class, 'show']);
     Route::put('/profile',  [ProfileController::class, 'update']);
@@ -71,6 +79,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // Push notifications — device token registration
     Route::post('/device-tokens',   [DeviceTokenController::class, 'store']);
     Route::delete('/device-tokens', [DeviceTokenController::class, 'destroy']);
+
+    // Integrations (OAuth — base de Google Calendar / Gmail, Fase 4)
+    // Nota: el callback es PÚBLICO (arriba), porque Google redirige el navegador sin token.
+    Route::get('/integrations',                  [IntegrationController::class, 'index']);
+    Route::get('/integrations/google/connect',   [IntegrationController::class, 'googleConnect']);
+    Route::delete('/integrations/google',        [IntegrationController::class, 'googleDisconnect']);
 
     // License (user-facing)
     Route::get('/license/status',   [LicenseController::class, 'status']);

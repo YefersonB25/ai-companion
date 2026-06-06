@@ -30,6 +30,7 @@ class SettingController extends Controller
             'briefing_enabled' => 'nullable|boolean',
             'briefing_time'    => 'nullable|string|regex:/^\d{2}:\d{2}$/',
             'briefing_city'    => 'nullable|string|max:100',
+            'calendar_alerts_enabled' => 'nullable|boolean',
         ]);
 
         $request->user()->setting()->updateOrCreate(
