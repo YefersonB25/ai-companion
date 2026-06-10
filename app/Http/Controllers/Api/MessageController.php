@@ -215,12 +215,14 @@ PROMPT;
         // El builder envuelve perfil/persona/memorias en un bloque de datos delimitado
         // y neutraliza intentos de prompt-injection; el contexto voice/driving/location
         // lo genera el sistema y va fuera del bloque de datos.
+        // Se pasa $conversation para agregar context rolling (últimos mensajes para continuidad).
         $systemPrompt = $this->promptBuilder->build(
             self::DEFAULT_SYSTEM_PROMPT,
             $user,
             $settings,
             $data['content'],
             $contextParts,
+            $conversation,
         );
 
         array_unshift($history, ['role' => 'system', 'content' => $systemPrompt]);

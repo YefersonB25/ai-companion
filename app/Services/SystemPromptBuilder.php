@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\User;
+use App\Models\Conversation;
 use App\Services\Memory\MemoryService;
 
 /**
@@ -51,11 +52,12 @@ PREAMBLE;
      * Construye el system prompt completo a partir del prompt base confiable y
      * el contenido no confiable del usuario.
      *
-     * @param  string       $basePrompt    Identidad/reglas de Aria (zona de confianza).
-     * @param  User         $user          Usuario dueño de la conversación.
-     * @param  array|null   $settings      UserSetting (persona, memory_enabled).
-     * @param  string       $userMessage   Mensaje actual (para recuperar memorias).
-     * @param  string[]     $contextParts  Contexto actual (voice/driving/location).
+     * @param  string            $basePrompt      Identidad/reglas de Aria (zona de confianza).
+     * @param  User              $user            Usuario dueño de la conversación.
+     * @param  array|null        $settings        UserSetting (persona, memory_enabled).
+     * @param  string            $userMessage     Mensaje actual (para recuperar memorias).
+     * @param  string[]          $contextParts    Contexto actual (voice/driving/location).
+     * @param  Conversation|null $conversation    Conversación actual (para context rolling).
      */
     public function build(
         string $basePrompt,
@@ -63,6 +65,7 @@ PREAMBLE;
         $settings,
         string $userMessage,
         array $contextParts = [],
+        ?Conversation $conversation = null,
     ): string {
         $prompt = $basePrompt;
 
@@ -102,6 +105,16 @@ PREAMBLE;
         // Contexto actual (voice/driving/location): lo genera el sistema, es confiable.
         if (! empty($contextParts)) {
             $prompt .= "\n\nCONTEXTO ACTUAL:\n" . implode("\n", $contextParts);
+        }
+
+        // Context rolling: últimos mensajes de la conversación para continuidad.
+        // Permite que Aria entienda referencias anafóricas ("qué piensas?" sin repetir tema).
+        if ($conversation) {
+            $contextBuilder = new ConversationContextBuilder();
+            $recentContext = $contextBuilder->buildRecentContextBlock($conversation);
+            if ($recentContext) {
+                $prompt .= "\n\n" . $recentContext;
+            }
         }
 
         return trim($prompt);
