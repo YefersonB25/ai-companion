@@ -30,3 +30,5 @@ snapshots/
 database/database.sqlite
 .qdrant-initialized
 AI_COMPANION_STATUS.md
+# APK files - binaries for mobile app
+public/downloads/*.apk
